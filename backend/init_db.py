@@ -6,182 +6,133 @@ Usage:
     python init_db.py --schema   # create tables only, no seed
 """
 
-import os
 import sys
 from datetime import date, timedelta
 from pathlib import Path
 
 import bcrypt
-import psycopg2
 from dotenv import load_dotenv
 
 load_dotenv()
 
-SCHEMA_PATH = Path(__file__).parent / "schema.sql"
 DEMO_EMAIL = "demo@store.com"
 DEMO_PASSWORD = "demo1234"
 DEMO_STORE = "Green Valley Market"
 
 
-def get_conn():
-    dsn = os.environ.get("DATABASE_URL")
-    if not dsn:
-        sys.exit("ERROR: DATABASE_URL is not set. Copy .env.example to .env and fill it in.")
-    return psycopg2.connect(dsn)
+def main():
+    schema_only = "--schema" in sys.argv
+
+    from app import create_app
+    from db import db, User, Vendor, AgreedCost, Promotion, VendorNotice, Invoice, InvoiceLine, Discrepancy, PendingAction
+
+    app = create_app()
+    with app.app_context():
+        db.create_all()
+        print("Schema applied.")
+
+        if not schema_only:
+            _seed_demo(db, User, Vendor, AgreedCost, Promotion, VendorNotice, Invoice, InvoiceLine, Discrepancy, PendingAction)
 
 
-def create_schema(conn):
-    sql = SCHEMA_PATH.read_text()
-    with conn.cursor() as cur:
-        cur.execute(sql)
-    conn.commit()
-    print("Schema applied.")
+def _seed_demo(db, User, Vendor, AgreedCost, Promotion, VendorNotice, Invoice, InvoiceLine, Discrepancy, PendingAction):
+    if User.query.filter_by(email=DEMO_EMAIL).first():
+        print(f"Demo user '{DEMO_EMAIL}' already exists — skipping seed.")
+        return
 
-
-def seed_demo(conn):
-    with conn.cursor() as cur:
-        # Check if demo user already exists
-        cur.execute("SELECT id FROM users WHERE email = %s", (DEMO_EMAIL,))
-        row = cur.fetchone()
-        if row:
-            print(f"Demo user '{DEMO_EMAIL}' already exists — skipping seed.")
-            return
-        user_id = _insert_user(cur)
-        vendor_ids = _insert_vendors(cur, user_id)
-        _insert_agreed_costs(cur, user_id, vendor_ids)
-        _insert_promotions(cur, user_id, vendor_ids)
-        _insert_vendor_notices(cur, user_id, vendor_ids)
-        invoice_id = _insert_demo_invoice(cur, user_id, vendor_ids)
-        _insert_discrepancies(cur, user_id, invoice_id)
-        _insert_pending_actions(cur, user_id, invoice_id)
-    conn.commit()
-    print(f"Demo account seeded: {DEMO_EMAIL} / {DEMO_PASSWORD}")
-
-
-# ---------------------------------------------------------------------------
-# Seed helpers
-# ---------------------------------------------------------------------------
-
-def _insert_user(cur) -> int:
+    # User
     pw_hash = bcrypt.hashpw(DEMO_PASSWORD.encode(), bcrypt.gensalt()).decode()
-    cur.execute(
-        "INSERT INTO users (email, password_hash, store_name) VALUES (%s, %s, %s) RETURNING id",
-        (DEMO_EMAIL, pw_hash, DEMO_STORE),
+    user = User(email=DEMO_EMAIL, password_hash=pw_hash, store_name=DEMO_STORE)
+    db.session.add(user)
+    db.session.flush()  # get user.id before inserting dependents
+
+    # Vendors
+    lsb = Vendor(
+        user_id=user.id,
+        name="Lakeshore Beverages",
+        account_no="LSB-0042",
+        terms="Net 30. Deposits: $0.10/bottle. Fuel surcharge 1.5% on orders under $500.",
     )
-    return cur.fetchone()[0]
-
-
-def _insert_vendors(cur, user_id: int) -> dict:
-    vendors = [
-        ("Lakeshore Beverages", "LSB-0042", "Net 30. Deposits: $0.10/bottle. Fuel surcharge 1.5% on orders under $500."),
-        ("Summit Foods", "SF-1187", "Net 14. No substitutions without prior approval. Price changes require 30-day notice."),
-    ]
-    ids = {}
-    for name, account_no, terms in vendors:
-        cur.execute(
-            "INSERT INTO vendors (user_id, name, account_no, terms) VALUES (%s, %s, %s, %s) RETURNING id",
-            (user_id, name, account_no, terms),
-        )
-        ids[name] = cur.fetchone()[0]
-    return ids
-
-
-def _insert_agreed_costs(cur, user_id: int, vendor_ids: dict):
-    lsb = vendor_ids["Lakeshore Beverages"]
-    sf = vendor_ids["Summit Foods"]
-    costs = [
-        (user_id, lsb, "LB-SPARKLING-12", "Sparkling Water 12-pk",    "case", 12,  8.40),
-        (user_id, lsb, "LB-STILL-24",     "Still Water 24-pk",         "case", 24,  6.00),
-        (user_id, lsb, "LB-OJ-6",         "Orange Juice 6-pk",         "case",  6, 11.50),
-        (user_id, lsb, "LB-DEPOSIT",      "Bottle Deposit",            "bottle", 1,  0.10),
-        (user_id, sf,  "SF-BREAD-WW",     "Whole Wheat Bread",         "loaf",   1,  2.85),
-        (user_id, sf,  "SF-CHIPS-BBQ",    "BBQ Chips 1oz",             "bag",    1,  0.75),
-        (user_id, sf,  "SF-CHIPS-PLAIN",  "Plain Chips 1oz",           "bag",    1,  0.72),
-        (user_id, sf,  "SF-GRANOLA-16",   "Granola 16oz",              "bag",    1,  4.20),
-    ]
-    cur.executemany(
-        "INSERT INTO agreed_costs (user_id, vendor_id, item_code, description, unit, pack_size, cost) "
-        "VALUES (%s, %s, %s, %s, %s, %s, %s)",
-        costs,
+    sf = Vendor(
+        user_id=user.id,
+        name="Summit Foods",
+        account_no="SF-1187",
+        terms="Net 14. No substitutions without prior approval. Price changes require 30-day notice.",
     )
+    db.session.add_all([lsb, sf])
+    db.session.flush()
 
+    # Agreed costs
+    db.session.add_all([
+        AgreedCost(user_id=user.id, vendor_id=lsb.id, item_code="LB-SPARKLING-12", description="Sparkling Water 12-pk", unit="case", pack_size=12, cost=8.40),
+        AgreedCost(user_id=user.id, vendor_id=lsb.id, item_code="LB-STILL-24",     description="Still Water 24-pk",     unit="case", pack_size=24, cost=6.00),
+        AgreedCost(user_id=user.id, vendor_id=lsb.id, item_code="LB-OJ-6",         description="Orange Juice 6-pk",     unit="case", pack_size=6,  cost=11.50),
+        AgreedCost(user_id=user.id, vendor_id=lsb.id, item_code="LB-DEPOSIT",      description="Bottle Deposit",        unit="bottle", pack_size=1, cost=0.10),
+        AgreedCost(user_id=user.id, vendor_id=sf.id,  item_code="SF-BREAD-WW",     description="Whole Wheat Bread",     unit="loaf",   pack_size=1, cost=2.85),
+        AgreedCost(user_id=user.id, vendor_id=sf.id,  item_code="SF-CHIPS-BBQ",    description="BBQ Chips 1oz",         unit="bag",    pack_size=1, cost=0.75),
+        AgreedCost(user_id=user.id, vendor_id=sf.id,  item_code="SF-CHIPS-PLAIN",  description="Plain Chips 1oz",       unit="bag",    pack_size=1, cost=0.72),
+        AgreedCost(user_id=user.id, vendor_id=sf.id,  item_code="SF-GRANOLA-16",   description="Granola 16oz",          unit="bag",    pack_size=1, cost=4.20),
+    ])
 
-def _insert_promotions(cur, user_id: int, vendor_ids: dict):
-    lsb = vendor_ids["Lakeshore Beverages"]
+    # Active promotion (Lakeshore sparkling water display allowance)
     today = date.today()
-    cur.execute(
-        "INSERT INTO promotions (user_id, vendor_id, item_code, description, allowance_per_case, start_date, end_date) "
-        "VALUES (%s, %s, %s, %s, %s, %s, %s)",
-        (user_id, lsb, "LB-SPARKLING-12", "Fall display allowance", 1.20,
-         today - timedelta(days=10), today + timedelta(days=20)),
+    db.session.add(Promotion(
+        user_id=user.id, vendor_id=lsb.id,
+        item_code="LB-SPARKLING-12",
+        description="Fall display allowance",
+        allowance_per_case=1.20,
+        start_date=today - timedelta(days=10),
+        end_date=today + timedelta(days=20),
+    ))
+
+    # Vendor notice (Summit Foods price update)
+    db.session.add(VendorNotice(
+        user_id=user.id, vendor_id=sf.id,
+        notice_date=today - timedelta(days=5),
+        subject="Price update: BBQ Chips",
+        body=(
+            "Effective immediately, BBQ Chips 1oz (SF-CHIPS-BBQ) will be priced at $0.80/bag "
+            "due to increased commodity costs. All invoices dated on or after today reflect the new price."
+        ),
+    ))
+
+    db.session.flush()
+
+    # Demo invoice (Lakeshore, two open discrepancies)
+    invoice_date = today - timedelta(days=2)
+    invoice = Invoice(
+        user_id=user.id, vendor_id=lsb.id,
+        invoice_number="LSB-20261101",
+        invoice_date=invoice_date,
+        total=162.60,
+        status="checked",
+        image_path=None,
     )
+    db.session.add(invoice)
+    db.session.flush()
 
+    db.session.add_all([
+        InvoiceLine(invoice_id=invoice.id, line_type="item",    item_code="LB-SPARKLING-12", description="Sparkling Water 12-pk", quantity=10, unit="case",   unit_price=9.00,  line_total=90.00, handwritten_note="rec'd 10"),
+        InvoiceLine(invoice_id=invoice.id, line_type="item",    item_code="LB-STILL-24",     description="Still Water 24-pk",     quantity=8,  unit="case",   unit_price=6.00,  line_total=48.00, handwritten_note="rec'd 8"),
+        InvoiceLine(invoice_id=invoice.id, line_type="item",    item_code="LB-OJ-6",         description="Orange Juice 6-pk",     quantity=2,  unit="case",   unit_price=11.50, line_total=23.00, handwritten_note="rec'd 2"),
+        InvoiceLine(invoice_id=invoice.id, line_type="deposit", item_code="LB-DEPOSIT",      description="Bottle Deposit",        quantity=48, unit="bottle", unit_price=0.10,  line_total=4.80,  handwritten_note=None),
+        InvoiceLine(invoice_id=invoice.id, line_type="fee",     item_code=None,              description="Fuel Surcharge",        quantity=1,  unit=None,     unit_price=None,  line_total=2.80,  handwritten_note=None),
+    ])
 
-def _insert_vendor_notices(cur, user_id: int, vendor_ids: dict):
-    sf = vendor_ids["Summit Foods"]
-    cur.execute(
-        "INSERT INTO vendor_notices (user_id, vendor_id, notice_date, subject, body) "
-        "VALUES (%s, %s, %s, %s, %s)",
-        (user_id, sf, date.today() - timedelta(days=5),
-         "Price update: BBQ Chips",
-         "Effective immediately, BBQ Chips 1oz (SF-CHIPS-BBQ) will be priced at $0.80/bag "
-         "due to increased commodity costs. All invoices dated on or after today reflect the new price."),
-    )
+    # Discrepancies: price overcharge + missing promo credit
+    db.session.add_all([
+        Discrepancy(user_id=user.id, invoice_id=invoice.id, type="price",     item_code="LB-SPARKLING-12", amount=6.00,  status="open", explanation=None),
+        Discrepancy(user_id=user.id, invoice_id=invoice.id, type="promotion", item_code="LB-SPARKLING-12", amount=12.00, status="open", explanation=None),
+    ])
+    db.session.flush()
 
-
-def _insert_demo_invoice(cur, user_id: int, vendor_ids: dict) -> int:
-    lsb = vendor_ids["Lakeshore Beverages"]
-    invoice_date = date.today() - timedelta(days=2)
-    # Stated total is intentionally correct so the invoice reaches 'checked'
-    cur.execute(
-        "INSERT INTO invoices (user_id, vendor_id, invoice_number, invoice_date, total, status, image_path) "
-        "VALUES (%s, %s, %s, %s, %s, %s, %s) RETURNING id",
-        (user_id, lsb, "LSB-20261101", invoice_date, 162.60, "checked", None),
-    )
-    invoice_id = cur.fetchone()[0]
-
-    lines = [
-        # (invoice_id, line_type, item_code, description, qty, unit, unit_price, line_total, note)
-        (invoice_id, "item",    "LB-SPARKLING-12", "Sparkling Water 12-pk", 10, "case",  9.00, 90.00, "rec'd 10"),
-        (invoice_id, "item",    "LB-STILL-24",     "Still Water 24-pk",      8, "case",  6.00, 48.00, "rec'd 8"),
-        (invoice_id, "item",    "LB-OJ-6",         "Orange Juice 6-pk",      2, "case", 11.50, 23.00, "rec'd 2"),
-        # Deposit line
-        (invoice_id, "deposit", "LB-DEPOSIT",      "Bottle Deposit",        48, "bottle", 0.10,  4.80, None),
-        # Promo credit is missing — discrepancy will be flagged
-        # Fuel surcharge fee
-        (invoice_id, "fee",     None,              "Fuel Surcharge",         1, None,    None,  2.80, None),
-        # Arithmetic error: 10 * 9.00 = 90.00 is fine; total doesn't match sum to demonstrate needs_review path
-        # (kept consistent here so status = 'checked')
-    ]
-    cur.executemany(
-        "INSERT INTO invoice_lines (invoice_id, line_type, item_code, description, quantity, unit, unit_price, line_total, handwritten_note) "
-        "VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)",
-        lines,
-    )
-    return invoice_id
-
-
-def _insert_discrepancies(cur, user_id: int, invoice_id: int):
-    discrepancies = [
-        # price mismatch: agreed $8.40, billed $9.00 × 10 cases = $6.00 overcharge
-        (user_id, invoice_id, "price",     "LB-SPARKLING-12",  6.00, "open", None),
-        # promo not applied: $1.20/case × 10 cases = $12.00 missing credit
-        (user_id, invoice_id, "promotion", "LB-SPARKLING-12", 12.00, "open", None),
-    ]
-    cur.executemany(
-        "INSERT INTO discrepancies (user_id, invoice_id, type, item_code, amount, status, explanation) "
-        "VALUES (%s, %s, %s, %s, %s, %s, %s)",
-        discrepancies,
-    )
-
-
-def _insert_pending_actions(cur, user_id: int, invoice_id: int):
-    import json
-    actions = [
-        (
-            user_id, invoice_id, "dispute",
-            json.dumps({
-                "vendor_id": None,  # resolved at runtime; placeholder for demo
+    # Pending actions for demo (pre-populated as if agent already ran)
+    db.session.add_all([
+        PendingAction(
+            user_id=user.id, invoice_id=invoice.id,
+            action_type="dispute",
+            details={
+                "vendor_id": lsb.id,
                 "items": ["LB-SPARKLING-12"],
                 "message": (
                     "Dear Lakeshore Beverages,\n\n"
@@ -190,36 +141,24 @@ def _insert_pending_actions(cur, user_id: int, invoice_id: int):
                     "Please issue a corrected invoice or credit memo.\n\n"
                     "Regards,\nGreen Valley Market"
                 ),
-            }),
-            "pending",
+            },
+            status="pending",
         ),
-        (
-            user_id, invoice_id, "cost_update",
-            json.dumps({
+        PendingAction(
+            user_id=user.id, invoice_id=invoice.id,
+            action_type="cost_update",
+            details={
                 "item_code": "LB-SPARKLING-12",
                 "new_cost": 9.00,
                 "evidence": "Invoiced at $9.00/case on LSB-20261101. Verify against current price list before approving.",
-            }),
-            "pending",
+            },
+            status="pending",
         ),
-    ]
-    cur.executemany(
-        "INSERT INTO pending_actions (user_id, invoice_id, action_type, details, status) "
-        "VALUES (%s, %s, %s, %s, %s)",
-        actions,
-    )
+    ])
 
+    db.session.commit()
+    print(f"Demo account seeded: {DEMO_EMAIL} / {DEMO_PASSWORD}")
 
-# ---------------------------------------------------------------------------
-# Entry point
-# ---------------------------------------------------------------------------
 
 if __name__ == "__main__":
-    schema_only = "--schema" in sys.argv
-    conn = get_conn()
-    try:
-        create_schema(conn)
-        if not schema_only:
-            seed_demo(conn)
-    finally:
-        conn.close()
+    main()

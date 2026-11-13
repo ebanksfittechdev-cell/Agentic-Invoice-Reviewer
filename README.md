@@ -100,6 +100,23 @@ npm install
 npm run dev                # starts on http://localhost:5173
 ```
 
+The Vite dev server proxies `/api` requests to the backend. By default it targets
+`http://127.0.0.1:5000` (IPv4). To point at a different backend, copy
+`frontend/.env.example` to `frontend/.env` and set `VITE_API_PROXY`.
+
+#### Troubleshooting: "connection refused" from the frontend
+
+- Start the backend (`flask run`) before the frontend, and confirm it responds:
+  `curl http://127.0.0.1:5000/api/auth/me` should return `401`, not a connection error.
+- If the browser and backend are on the same machine, no extra config is needed.
+  The proxy uses `127.0.0.1`, not `localhost`, because on many systems
+  `localhost` resolves to IPv6 (`::1`) while Flask listens only on IPv4.
+- If the backend runs on another machine, start it with
+  `flask run --host=0.0.0.0` and set `VITE_API_PROXY=http://<backend-ip>:5000`
+  in `frontend/.env`.
+- If the frontend runs on a non-default origin/port, set `FRONTEND_ORIGINS`
+  (comma-separated) in `backend/.env` for CORS.
+
 ---
 
 ## API overview
@@ -115,7 +132,7 @@ All endpoints require a session cookie (set at login) except `/api/auth/register
 | POST | `/api/invoices/upload` | Upload invoice image or PDF |
 | GET | `/api/invoices` | List invoices with status |
 | GET | `/api/invoices/:id` | Invoice detail (lines, discrepancies, actions) |
-| GET | `/api/discrepancies` | All discrepancies for the store |
+| GET | `/api/invoices/discrepancies` | All discrepancies for the store |
 | GET | `/api/actions` | All pending actions for the store |
 | POST | `/api/actions/:id/approve` | Approve a pending action |
 | POST | `/api/actions/:id/reject` | Reject a pending action |
