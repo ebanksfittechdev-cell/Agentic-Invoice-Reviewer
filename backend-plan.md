@@ -4,7 +4,9 @@
 
 Build the complete Flask backend for the Agentic Invoice Reviewer: environment setup, Postgres schema, session-based auth API, invoice upload and Gemini extraction, discrepancy checks, Google ADK agent with read/write tools, and owner-approval endpoints. The backend exposes a JSON REST API consumed by the React frontend.
 
-Stack: Python + Flask, Postgres (psycopg2), Google ADK (`google-adk`), Gemini (via ADK), Flask-Login or flask_session for auth, Flask-CORS for cross-origin.
+**Context:** Hackathon project — two hackers. Prioritise working demo over clean abstractions. The seeded demo account must look convincing for the live pitch.
+
+Stack: Python + Flask, Postgres (psycopg2), Google ADK (`google-adk`), Gemini 1.5 Pro, Flask-CORS for cross-origin, flask.session for auth.
 
 ---
 
@@ -216,10 +218,39 @@ Expose the remaining REST endpoints the frontend needs: approving/rejecting pend
 
 ---
 
-## Implementation Order
+## Implementation Order & Hacker Split
+
+This is a two-person hackathon. After the shared foundation (Sub-Tasks 1–2) is done, the work splits cleanly so both hackers can move in parallel.
+
+### Shared first (must be done before anything else)
 
 ```
-Sub-Task 1 (scaffold) → Sub-Task 2 (DB) → Sub-Task 3 (auth) → Sub-Task 4 (upload + extraction) → Sub-Task 5 (checks) → Sub-Task 6 (agent) → Sub-Task 7 (approvals + history)
+Sub-Task 1 (scaffold) → Sub-Task 2 (DB schema + demo seed)
 ```
 
-Each sub-task depends on the one before it. Sub-Tasks 4 and 5 are tightly coupled (checks run inside the upload flow); they should be implemented together or 4 first with a stub for checks.
+Both hackers pull from main after Sub-Task 2 is merged.
+
+### Parallel tracks
+
+```
+Hacker A                              Hacker B
+────────────────────────────────      ──────────────────────────────
+Sub-Task 3 (auth API)                 Sub-Task 6 (ADK agent + tools)
+      ↓                                     ↓
+Sub-Task 4 (upload + extraction)      Sub-Task 7 (approvals + history)
+      ↓
+Sub-Task 5 (discrepancy checks)
+```
+
+Hacker B can stub out `run_agent()` with a no-op while the agent tools are being built, then wire it into the upload flow once Sub-Task 5 is merged.
+
+### Merge point
+
+Once both tracks are done, wire Sub-Task 6 into the upload flow (Sub-Task 4, step 5) and do a final integration smoke-test.
+
+### Demo priority
+
+If time runs short, cut in this order:
+1. Keep: auth, upload, extraction, discrepancy checks, action approval (the core loop).
+2. Cut: `search_vendor_notices` and `get_invoice_history` agent tools (replace with stub responses).
+3. Cut: `POST /api/history/import` (seed the demo data directly in `init_db.py` instead).
