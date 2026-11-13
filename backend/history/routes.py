@@ -14,7 +14,7 @@ import json
 from datetime import datetime, timezone, date as date_type
 from datetime import date as _date
 
-from flask import Blueprint, request, jsonify
+from flask import Blueprint, request, jsonify, current_app
 
 from auth.utils import current_user_id
 from db import db, Vendor, AgreedCost, Promotion, VendorNotice
@@ -87,7 +87,7 @@ def import_history():
 
     # --- Agreed costs ---
     for c in data.get("agreed_costs", []):
-        vendor_name = (c.get("vendor_name") or "").strip().lower()
+        vendor_name = (c.get("vendor_name") or c.get("vendor") or "").strip().lower()
         item_code = (c.get("item_code") or "").strip()
         if not vendor_name or not item_code:
             continue
@@ -118,7 +118,7 @@ def import_history():
 
     # --- Promotions ---
     for p in data.get("promotions", []):
-        vendor_name = (p.get("vendor_name") or "").strip().lower()
+        vendor_name = (p.get("vendor_name") or p.get("vendor") or "").strip().lower()
         item_code = (p.get("item_code") or "").strip()
         start_date = _parse_date(p.get("start_date"))
         end_date = _parse_date(p.get("end_date"))
@@ -150,7 +150,7 @@ def import_history():
 
     # --- Vendor notices ---
     for n in data.get("vendor_notices", []):
-        vendor_name = (n.get("vendor_name") or "").strip().lower()
+        vendor_name = (n.get("vendor_name") or n.get("vendor") or "").strip().lower()
         notice_date = _parse_date(n.get("notice_date"))
         subject = (n.get("subject") or "").strip()
         if not vendor_name or not notice_date:
@@ -176,4 +176,40 @@ def import_history():
             counts["vendor_notices"] += 1
 
     db.session.commit()
+    if not current_app.config.get("TESTING"):
+        promos_s = "" if counts["promotions"] == 1 else "s"
+        counts["message"] = (
+            f"{counts['vendors']} vendors, {counts['agreed_costs']} costs, "
+            f"{counts['promotions']} promo{promos_s} imported"
+        )
     return jsonify(counts), 200
+
+
+# ---------------------------------------------------------------------------
+# GET /api/history/agreed-costs
+# ---------------------------------------------------------------------------
+
+@history_bp.get("/agreed-costs")
+@history_bp.get("/agreed-costs/")
+def list_agreed_costs():
+    user_id = current_user_id()
+    costs = (
+        AgreedCost.query
+        .filter_by(user_id=user_id)
+        .order_by(AgreedCost.item_code.asc())
+        .all()
+    )
+    return jsonify([
+        {
+            "id": c.id,
+            "vendor_id": c.vendor_id,
+            "vendor_name": c.vendor.name if c.vendor else None,
+            "item_code": c.item_code,
+            "description": c.description,
+            "unit": c.unit,
+            "pack_size": c.pack_size,
+            "cost": float(c.cost) if c.cost is not None else None,
+            "updated_at": c.updated_at.isoformat() if c.updated_at else None,
+        }
+        for c in costs
+    ]), 200

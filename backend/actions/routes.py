@@ -12,6 +12,7 @@ actions_bp = Blueprint("actions", __name__)
 # GET /api/actions
 # ---------------------------------------------------------------------------
 
+@actions_bp.get("")
 @actions_bp.get("/")
 def list_actions():
     user_id = current_user_id()

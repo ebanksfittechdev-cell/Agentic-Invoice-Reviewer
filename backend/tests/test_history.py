@@ -140,3 +140,26 @@ class TestHistoryImport:
         })
         # user2 doesn't have SharedName — cost should be skipped
         assert resp.get_json()["agreed_costs"] == 0
+
+
+class TestListAgreedCosts:
+    def test_requires_auth(self, client, db):
+        resp = client.get("/api/history/agreed-costs")
+        assert resp.status_code == 401
+
+    def test_list_returns_costs_with_vendor_name(self, client, db):
+        _login_new(client, "cost_user@hist.com")
+        _post_import(client, {
+            "vendors": [{"name": "Lakeshore"}],
+            "agreed_costs": [
+                {"vendor": "Lakeshore", "item_code": "ITEM-1", "cost": 12.50, "description": "Milk", "unit": "case", "pack_size": 4}
+            ]
+        })
+        resp = client.get("/api/history/agreed-costs")
+        assert resp.status_code == 200
+        data = resp.get_json()
+        assert len(data) == 1
+        assert data[0]["item_code"] == "ITEM-1"
+        assert data[0]["vendor_name"] == "Lakeshore"
+        assert data[0]["cost"] == 12.50
+        assert data[0]["pack_size"] == 4

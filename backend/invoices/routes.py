@@ -123,10 +123,13 @@ def upload():
         _log.exception("discrepancy_checks.run_checks failed for invoice %s", invoice.id)
         raise
 
+    agent_summary = None
     if discrepancies and invoice.status == "checked":
         try:
             from agent.runner import run_agent
-            run_agent(invoice.id, user_id, discrepancies)
+            res = run_agent(invoice.id, user_id, discrepancies)
+            if isinstance(res, dict):
+                agent_summary = res.get("summary")
         except ModuleNotFoundError as exc:
             if exc.name != "agent.runner":
                 _log.exception("Unexpected import error in agent.runner")
@@ -144,6 +147,8 @@ def upload():
         "total": float(invoice.total) if invoice.total is not None else None,
         "line_count": len(lines),
         "discrepancy_count": len(discrepancies),
+        "agent_summary": agent_summary,
+        "agent_steps": [],
     }), 201
 
 
@@ -151,6 +156,7 @@ def upload():
 # GET /api/invoices
 # ---------------------------------------------------------------------------
 
+@invoices_bp.get("")
 @invoices_bp.get("/")
 def list_invoices():
     user_id = current_user_id()

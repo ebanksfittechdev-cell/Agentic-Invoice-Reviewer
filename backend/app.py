@@ -13,6 +13,7 @@ def create_app(config_overrides: dict | None = None):
     # SQLAlchemy needs the URI under this key
     app.config["SQLALCHEMY_DATABASE_URI"] = app.config["DATABASE_URL"]
     app.config["SQLALCHEMY_TRACK_MODIFICATIONS"] = False
+    app.url_map.strict_slashes = False
 
     # Apply test/override config BEFORE db.init_app() so the engine is built
     # against the correct URI (e.g. sqlite:///:memory: in tests).
@@ -38,11 +39,13 @@ def create_app(config_overrides: dict | None = None):
     from invoices.routes import invoices_bp
     from actions.routes import actions_bp
     from history.routes import history_bp
+    from agent.routes import agent_bp
 
     app.register_blueprint(auth_bp, url_prefix="/api/auth")
     app.register_blueprint(invoices_bp, url_prefix="/api/invoices")
     app.register_blueprint(actions_bp, url_prefix="/api/actions")
     app.register_blueprint(history_bp, url_prefix="/api/history")
+    app.register_blueprint(agent_bp, url_prefix="/api/agent")
 
     return app
 
