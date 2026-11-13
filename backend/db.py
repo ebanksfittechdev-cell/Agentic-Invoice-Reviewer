@@ -1,8 +1,8 @@
+import sqlite3
+
 from flask_sqlalchemy import SQLAlchemy
-from sqlalchemy import (
-    BigInteger, Date, DateTime, Integer, Numeric, Text, func
-)
-from sqlalchemy.dialects.postgresql import JSONB
+from sqlalchemy import JSON, Date, DateTime, Integer, Numeric, Text, event, func
+from sqlalchemy.engine import Engine
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 
 
@@ -11,6 +11,15 @@ class Base(DeclarativeBase):
 
 
 db = SQLAlchemy(model_class=Base)
+
+
+@event.listens_for(Engine, "connect")
+def _enable_sqlite_foreign_keys(dbapi_connection, connection_record):
+    """SQLite disables foreign keys by default; keep ON DELETE CASCADE working."""
+    if isinstance(dbapi_connection, sqlite3.Connection):
+        cursor = dbapi_connection.cursor()
+        cursor.execute("PRAGMA foreign_keys=ON")
+        cursor.close()
 
 
 # ---------------------------------------------------------------------------
@@ -153,7 +162,7 @@ class PendingAction(db.Model):
     user_id:     Mapped[int]        = mapped_column(Integer, db.ForeignKey("users.id"), nullable=False, index=True)
     invoice_id:  Mapped[int]        = mapped_column(Integer, db.ForeignKey("invoices.id"), nullable=False, index=True)
     action_type: Mapped[str]        = mapped_column(Text, nullable=False)
-    details:     Mapped[dict | None] = mapped_column(JSONB)
+    details:     Mapped[dict | None] = mapped_column(JSON)
     status:      Mapped[str]        = mapped_column(Text, nullable=False, default="pending")
     created_at:  Mapped[DateTime]   = mapped_column(DateTime(timezone=True), server_default=func.now())
     decided_at:  Mapped[DateTime | None] = mapped_column(DateTime(timezone=True))

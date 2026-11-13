@@ -8,7 +8,6 @@ Usage:
 
 import sys
 from datetime import date, timedelta
-from pathlib import Path
 
 import bcrypt
 from dotenv import load_dotenv
@@ -30,6 +29,7 @@ def main():
     with app.app_context():
         db.create_all()
         print("Schema applied.")
+        print(f"Database: {db.engine.url.database}")
 
         if not schema_only:
             _seed_demo(db, User, Vendor, AgreedCost, Promotion, VendorNotice, Invoice, InvoiceLine, Discrepancy, PendingAction)

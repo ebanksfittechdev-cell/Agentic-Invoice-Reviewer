@@ -6,7 +6,7 @@ proxies `/api` requests to the backend, so the browser only talks to Vite.
 ## Quick start from a fresh clone
 
 You need the backend running before the frontend. See the
-[root README](../README.md) for full PostgreSQL/backend setup.
+[root README](../README.md) for full backend and SQLite setup.
 
 ### 1. Clone the repository
 
@@ -20,23 +20,30 @@ git switch arodgers
 
 ```bash
 cd backend
-python3 -m venv venv
-source venv/bin/activate          # Windows: venv\Scripts\activate
+python3 -m venv venv              # Windows: py -3 -m venv venv
+source venv/bin/activate          # Windows PS: .\venv\Scripts\Activate.ps1
+                                  # Windows cmd: venv\Scripts\activate.bat
 pip install -r requirements.txt
-cp .env.example .env              # set DATABASE_URL, SECRET_KEY, GEMINI_API_KEY
-python init_db.py                 # creates tables + demo account
+cp .env.example .env              # Windows: Copy-Item .env.example .env
+python init_db.py                 # Windows: py init_db.py
 flask run                         # http://127.0.0.1:5000
+                                  # Windows: python -m flask run
 ```
 
-PostgreSQL must be installed and running first — see step 2 of the
-[root README](../README.md).
+Set `SECRET_KEY` and `GEMINI_API_KEY` in `backend/.env` first. The default
+`DATABASE_URL=sqlite:///invoice_reviewer.db` creates
+`backend/instance/invoice_reviewer.db` — no database server is required. On
+Windows, also set `UPLOAD_FOLDER=C:/invoice_uploads`.
+
+Open that database file with **DB Browser for SQLite** after running
+`init_db.py`; see the [root README](../README.md) for details.
 
 ### 3. Start the frontend (terminal 2)
 
 ```bash
 cd frontend
 npm install
-cp .env.example .env              # optional for a local backend
+cp .env.example .env              # Windows: Copy-Item .env.example .env
 npm run dev                       # http://localhost:5173
 ```
 
@@ -61,8 +68,15 @@ On the backend machine:
 
 ```bash
 flask run --host=0.0.0.0 --port=5000
-hostname -I                       # note the LAN IP
-# open the firewall if needed, e.g. sudo ufw allow 5000/tcp
+# Windows: python -m flask run --host=0.0.0.0 --port=5000
+
+hostname -I                       # Linux: note the LAN IP
+# Windows: ipconfig               # use the IPv4 Address
+
+# Linux firewall: sudo ufw allow 5000/tcp
+# Windows PowerShell (Administrator):
+# New-NetFirewallRule -DisplayName "Flask 5000" -Direction Inbound `
+#   -Protocol TCP -LocalPort 5000 -Action Allow
 ```
 
 On the frontend machine, set `frontend/.env`:
@@ -122,3 +136,9 @@ frontend/
   the origin to `FRONTEND_ORIGINS` on the backend.
 - **Blank page / no HMR**: check the Vite terminal output for compile errors and
   run `npm run lint`.
+- **Windows: `'cp' is not recognized`**: use `Copy-Item .env.example .env`.
+- **Windows: activation script blocked**: run
+  `Set-ExecutionPolicy -Scope CurrentUser RemoteSigned`, or use
+  `venv\Scripts\activate.bat` from cmd.
+- **Windows: other-machine connection fails**: allow port 5000 through Windows
+  Firewall and use the `IPv4 Address` from `ipconfig`.

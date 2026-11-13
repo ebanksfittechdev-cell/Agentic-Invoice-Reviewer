@@ -163,7 +163,7 @@ Rejecting any action type sets `pending_actions.status = "rejected"` and `decide
 
 | Variable | Description |
 |----------|-------------|
-| `DATABASE_URL` | Postgres connection string, e.g. `postgresql://user:pass@localhost/invoices` |
+| `DATABASE_URL` | SQLite URL, e.g. `sqlite:///invoice_reviewer.db` (file lives in `backend/instance/`) |
 | `SECRET_KEY` | Flask session signing key — keep this secret and long |
 | `GEMINI_API_KEY` | Google AI API key with Gemini access |
 | `UPLOAD_FOLDER` | Absolute path where invoice files are stored, e.g. `/var/data/uploads` |

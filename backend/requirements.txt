@@ -2,7 +2,6 @@ flask>=3.0,<4
 flask-cors>=4.0,<5
 flask-sqlalchemy>=3.1,<4
 sqlalchemy>=2.0,<3
-psycopg2-binary>=2.9,<3
 python-dotenv>=1.0,<2
 google-adk>=0.5,<1
 google-genai>=1.0,<2

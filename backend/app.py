@@ -18,6 +18,13 @@ def create_app(config_overrides: dict | None = None):
     # against the correct URI (e.g. sqlite:///:memory: in tests).
     app.config.update(config_overrides or {})
 
+    uri = app.config.get("SQLALCHEMY_DATABASE_URI") or ""
+    if uri.startswith(("postgres://", "postgresql://", "postgresql+")):
+        raise RuntimeError(
+            "PostgreSQL support has been removed. Set DATABASE_URL to "
+            "'sqlite:///invoice_reviewer.db' in backend/.env."
+        )
+
     os.makedirs(app.config["UPLOAD_FOLDER"], exist_ok=True)
 
     from db import db

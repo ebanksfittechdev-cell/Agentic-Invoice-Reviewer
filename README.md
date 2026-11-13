@@ -2,7 +2,7 @@
 
 A web app for independent grocers: code checks supplier invoices against the store's records, an agent decides which mismatches are real, and the owner approves disputes and cost updates.
 
-**Stack:** React · Flask · Postgres · Google ADK · Gemini 1.5 Pro
+**Stack:** React · Flask · SQLite · Google ADK · Gemini 1.5 Pro
 
 ---
 
@@ -37,12 +37,14 @@ Agentic-Invoice-Reviewer/
 │   ├── app.py                     # Flask application factory
 │   ├── config.py                  # Config class from env vars
 │   ├── db.py                      # SQLAlchemy db instance + all 9 ORM models
-│   ├── schema.sql                 # All 9 table definitions (reference)
+│   ├── schema.sql                 # SQLite table definitions (reference)
 │   ├── init_db.py                 # Create schema + seed demo data
 │   ├── history_schema.md          # JSON format for store record imports
 │   ├── requirements.txt
 │   ├── dev-requirements.txt       # pytest (test dependencies)
 │   ├── .env.example
+│   ├── instance/
+│   │   └── invoice_reviewer.db    # local SQLite DB (generated, gitignored)
 │   ├── auth/
 │   │   ├── routes.py              # Register, login, logout, /me
 │   │   └── utils.py               # current_user_id() helper
@@ -91,9 +93,12 @@ You need **two terminals**: one for the Flask API, one for Vite.
 |------|---------|-------|
 | Git | any recent | |
 | Python | 3.11+ | `python3 --version` |
-| PostgreSQL | 14+ | server and client |
 | Node.js | 20+ | includes `npm` |
 | Gemini API key | — | https://aistudio.google.com/app/apikey |
+| DB Browser for SQLite | optional | https://sqlitebrowser.org/ — inspect the DB visually |
+
+No database server is required: SQLite is built into Python and the database is a
+single file created by `init_db.py`.
 
 On Debian/Ubuntu, also install the venv package:
 
@@ -103,6 +108,13 @@ sudo apt install -y python3-venv
 
 Install Node 20+ from your distro or NodeSource if `node --version` is missing
 or too old.
+
+**Windows:** install Git for Windows, Python 3.11+ from
+[python.org](https://www.python.org/downloads/) (tick **Add python.exe to PATH**),
+and Node.js 20+. Use PowerShell for the commands below. Where this guide shows
+`python`, Windows may use `py`; where it shows `source ...`, use
+`.\venv\Scripts\Activate.ps1`; and replace `cp` with `Copy-Item`. Windows
+Subsystem for Linux (WSL) users can follow the Linux commands directly.
 
 ### 1. Clone the repository
 
@@ -114,85 +126,75 @@ cd Agentic-Invoice-Reviewer
 git switch arodgers
 ```
 
-### 2. Install and start PostgreSQL
+### 2. Database (SQLite)
 
-Fedora / RHEL:
+SQLite needs no installation or server — it is built into Python. The database is
+a single file:
 
-```bash
-sudo dnf install -y postgresql-server postgresql-contrib
-sudo postgresql-setup --initdb
-sudo systemctl enable --now postgresql
+```
+backend/instance/invoice_reviewer.db
 ```
 
-Debian / Ubuntu:
-
-```bash
-sudo apt update
-sudo apt install -y postgresql
-sudo systemctl enable --now postgresql
-```
-
-Create the role and database used by the example `.env`:
-
-```bash
-sudo -u postgres psql <<'SQL'
-CREATE USER invoice_user WITH PASSWORD 'invoice_pass';
-CREATE DATABASE invoice_reviewer OWNER invoice_user;
-SQL
-```
-
-If the role/database already exist, skip this. To reset the password:
-
-```bash
-sudo -u postgres psql -c "ALTER USER invoice_user WITH PASSWORD 'invoice_pass';"
-```
-
-Verify the connection:
-
-```bash
-psql "postgresql://invoice_user:invoice_pass@localhost:5432/invoice_reviewer" -c "SELECT 1;"
-```
+`init_db.py` creates and seeds it in the next step, and the file is gitignored.
+To inspect or share it, open that file with **DB Browser for SQLite**, or copy it
+to another machine.
 
 ### 3. Backend (Flask API) — terminal 1
 
 ```bash
 cd backend
-python3 -m venv venv
-source venv/bin/activate          # Windows: venv\Scripts\activate
+python3 -m venv venv              # Windows: py -3 -m venv venv
+source venv/bin/activate          # Windows PS: .\venv\Scripts\Activate.ps1
+                                  # Windows cmd: venv\Scripts\activate.bat
 pip install --upgrade pip
 pip install -r requirements.txt
 
-cp .env.example .env
+cp .env.example .env              # Windows: Copy-Item .env.example .env
+```
+
+If PowerShell refuses to run the activation script, either use the cmd
+activation above or allow local scripts for your user:
+
+```powershell
+Set-ExecutionPolicy -Scope CurrentUser RemoteSigned
 ```
 
 Edit `backend/.env`:
 
 ```env
-DATABASE_URL=postgresql://invoice_user:invoice_pass@localhost:5432/invoice_reviewer
+DATABASE_URL=sqlite:///invoice_reviewer.db
 SECRET_KEY=<output of the command below>
 GEMINI_API_KEY=<your Gemini API key>
 UPLOAD_FOLDER=/tmp/invoice_uploads
+# Windows instead: UPLOAD_FOLDER=C:/invoice_uploads
 FLASK_ENV=development
 FRONTEND_ORIGINS=http://localhost:5173,http://127.0.0.1:5173
 ```
 
+With the default URL, Flask-SQLAlchemy stores the database at
+`backend/instance/invoice_reviewer.db` (not in the current directory).
+
 Generate `SECRET_KEY`:
 
 ```bash
-python -c "import secrets; print(secrets.token_hex(32))"
+python -c "import secrets; print(secrets.token_hex(32))"   # Windows: py -c "..."
 ```
 
-Create the schema and demo data:
+Create the database and demo data:
 
 ```bash
 mkdir -p /tmp/invoice_uploads
-python init_db.py
+# Windows PowerShell instead:
+# New-Item -ItemType Directory -Force C:\invoice_uploads | Out-Null
+
+python init_db.py                 # Windows: py init_db.py
 ```
 
 Expected output on a fresh database:
 
 ```
 Schema applied.
+Database: /absolute/path/to/backend/instance/invoice_reviewer.db
 Demo account seeded: demo@store.com / demo1234
 ```
 
@@ -203,18 +205,21 @@ Start the API:
 ```bash
 flask run
 # http://127.0.0.1:5000
+# Windows: python -m flask run
 ```
 
 Leave this terminal running. To reach the API from another machine, use:
 
 ```bash
 flask run --host=0.0.0.0 --port=5000
+# Windows: python -m flask run --host=0.0.0.0 --port=5000
 ```
 
 Sanity check (new terminal):
 
 ```bash
 curl -i http://127.0.0.1:5000/api/auth/me   # HTTP/1.1 401 (expected logged out)
+# Windows PowerShell: curl.exe -i http://127.0.0.1:5000/api/auth/me
 ```
 
 ### 4. Frontend (React + Vite) — terminal 2
@@ -224,7 +229,7 @@ From the repo root:
 ```bash
 cd frontend
 npm install
-cp .env.example .env      # optional for a local backend
+cp .env.example .env      # Windows: Copy-Item .env.example .env
 npm run dev
 # http://localhost:5173
 ```
@@ -252,13 +257,13 @@ login shows an alert: `Logged in as <store name>`.
 
 ```bash
 cd backend
-source venv/bin/activate
+source venv/bin/activate          # Windows PS: .\venv\Scripts\Activate.ps1
 pip install -r dev-requirements.txt
-python -m pytest -q        # 93 tests
+python -m pytest -q               # Windows: py -m pytest -q (93 tests)
 ```
 
-The suite uses an in-memory SQLite database and never touches Postgres. A guard
-aborts the run if the bound engine is not SQLite.
+The suite uses an in-memory SQLite database and never touches the dev database
+file. A guard aborts the run unless the bound engine is in-memory SQLite.
 
 ### 7. Frontend and backend on different machines
 
@@ -266,8 +271,15 @@ On the **backend machine**:
 
 ```bash
 flask run --host=0.0.0.0 --port=5000
-hostname -I                       # note the LAN IP
-# open the firewall if needed, e.g. sudo ufw allow 5000/tcp
+# Windows: python -m flask run --host=0.0.0.0 --port=5000
+
+hostname -I                       # Linux: note the LAN IP
+# Windows: ipconfig               # use the IPv4 Address
+
+# Linux firewall: sudo ufw allow 5000/tcp
+# Windows PowerShell (Administrator):
+# New-NetFirewallRule -DisplayName "Flask 5000" -Direction Inbound `
+#   -Protocol TCP -LocalPort 5000 -Action Allow
 ```
 
 On the **frontend machine**:
@@ -297,10 +309,13 @@ processes listening on ports 5000 and 5173.
   proxy target is wrong. `curl http://127.0.0.1:5000/api/auth/me` should return
   401. The proxy uses `127.0.0.1`, not `localhost`, because `localhost` often
   resolves to IPv6 (`::1`) while Flask listens only on IPv4.
-- **`psql: FATAL: password authentication failed`**: re-check `DATABASE_URL` and
-  the role/password from step 2.
-- **`init_db.py` cannot connect**: Postgres isn't running
-  (`sudo systemctl status postgresql`) or the database doesn't exist.
+- **`init_db.py` fails with a database connection error**: `backend/.env` may
+  still point at the old database. Set
+  `DATABASE_URL=sqlite:///invoice_reviewer.db`.
+- **DB Browser shows no database**: the file is at
+  `backend/instance/invoice_reviewer.db`; run `python init_db.py` first.
+- **DB Browser says "database is locked"**: close any write operation, or use the
+  DB Browser refresh button; SQLite allows one writer at a time.
 - **CORS errors**: only relevant when the browser calls the API directly. Add the
   frontend origin to `FRONTEND_ORIGINS` in `backend/.env`.
 - **Upload returns `needs_review`**: `GEMINI_API_KEY` is missing/invalid or
@@ -309,6 +324,13 @@ processes listening on ports 5000 and 5173.
   `flask run --port=5001` (and update `VITE_API_PROXY` to match).
 - **`localhost:5173` unreachable from another machine**: start Vite with
   `npm run dev -- --host 0.0.0.0`.
+- **Windows: `'cp' is not recognized`**: use `Copy-Item .env.example .env`, or
+  run the commands in Git Bash/WSL.
+- **Windows: `Activate.ps1 cannot be loaded`**: run
+  `Set-ExecutionPolicy -Scope CurrentUser RemoteSigned`, or use
+  `venv\Scripts\activate.bat` in cmd.
+- **Windows: port 5000 unreachable from another machine**: add an inbound
+  firewall rule (see step 7) and use the `IPv4 Address` from `ipconfig`.
 
 ---
 
@@ -337,7 +359,9 @@ See `backend/history_schema.md` for the JSON import format.
 
 ## Database
 
-Postgres, 9 tables. One account = one store. Every table except `users` and `invoice_lines` carries `user_id`, and every query filters by it.
+SQLite, 9 tables, stored in `backend/instance/invoice_reviewer.db`. One account =
+one store. Every table except `users` and `invoice_lines` carries `user_id`, and
+every query filters by it.
 
 | Table | Purpose |
 |-------|---------|
@@ -359,6 +383,18 @@ invoice_lines.line_type:  item · credit · fee · deposit
 discrepancies.status:     open · explained · disputed · asked_owner
 pending_actions.status:   pending · approved · rejected
 ```
+
+### Inspecting the database with DB Browser
+
+1. Install [DB Browser for SQLite](https://sqlitebrowser.org/).
+2. Run `python init_db.py` from `backend/` to create and seed the file.
+3. Open `backend/instance/invoice_reviewer.db`.
+4. Use the **Browse Data** tab to inspect `users`, `vendors`, `invoices`,
+   `discrepancies`, and `pending_actions`.
+5. Click **Refresh** to reload changes written by the running app.
+
+The file is portable — copy it to another machine and open it there. JSON values
+in `pending_actions.details` are stored as readable text.
 
 ---
 
@@ -382,7 +418,7 @@ pending_actions.status:   pending · approved · rejected
 ## Intentionally left out (roadmap)
 
 - Onboarding and account settings
-- Saved chat history (sessions are in-memory; results persist in Postgres)
+- Saved chat history (sessions are in-memory; results persist in SQLite)
 - Purchase orders and receiving screen
 - Sending real email (Approve copies dispute text)
 - Email, POS, and vendor-portal integrations
