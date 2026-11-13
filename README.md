@@ -34,34 +34,40 @@ The same chat answers questions such as "How much did Lakeshore overcharge us th
 ```
 Agentic-Invoice-Reviewer/
 ├── backend/
-│   ├── app.py                  # Flask application factory
-│   ├── config.py               # Config class from env vars
-│   ├── db.py                   # Postgres connection pool
-│   ├── schema.sql              # All 9 table definitions
-│   ├── init_db.py              # Create schema + seed demo data
-│   ├── history_schema.md       # JSON format for store record imports
+│   ├── app.py                     # Flask application factory
+│   ├── config.py                  # Config class from env vars
+│   ├── db.py                      # SQLAlchemy db instance + all 9 ORM models
+│   ├── schema.sql                 # All 9 table definitions (reference)
+│   ├── init_db.py                 # Create schema + seed demo data
+│   ├── history_schema.md          # JSON format for store record imports
 │   ├── requirements.txt
+│   ├── dev-requirements.txt       # pytest (test dependencies)
 │   ├── .env.example
 │   ├── auth/
-│   │   ├── routes.py           # Register, login, logout, /me
-│   │   └── utils.py            # current_user_id() helper
+│   │   ├── routes.py              # Register, login, logout, /me
+│   │   └── utils.py               # current_user_id() helper
 │   ├── invoices/
-│   │   ├── routes.py           # Upload, list, detail endpoints
-│   │   ├── extractor.py        # Gemini 1.5 Pro extraction call
-│   │   ├── checks.py           # verify_total()
+│   │   ├── routes.py              # Upload, list, detail, discrepancies
+│   │   ├── extractor.py           # Gemini 1.5 Pro extraction call
+│   │   ├── checks.py              # verify_total()
 │   │   └── discrepancy_checks.py  # Six rule-based checks
 │   ├── agent/
-│   │   ├── agent.py            # Google ADK LlmAgent definition
-│   │   ├── tools.py            # 5 read tools + 4 write tools
-│   │   └── runner.py           # run_agent() — session, state, callback
+│   │   ├── agent.py               # Google ADK LlmAgent definition
+│   │   ├── tools.py               # 5 read tools + 4 write tools
+│   │   └── runner.py              # run_agent() — session, state, 8-call limit
 │   ├── actions/
-│   │   └── routes.py           # Approve / reject pending actions
-│   └── history/
-│       └── routes.py           # JSON store-records import
+│   │   └── routes.py              # List, approve, reject pending actions
+│   ├── history/
+│   │   └── routes.py              # JSON store-records import
+│   └── tests/
+│       ├── conftest.py            # SQLite fixtures + factory helpers
+│       └── test_discrepancy_checks.py  # 22 tests for all six checks
 └── frontend/
     └── src/
         ├── App.jsx
         └── login page/
+            ├── login.jsx          # Login + register forms
+            └── login.css
 ```
 
 ---
@@ -130,13 +136,13 @@ All endpoints require a session cookie (set at login) except `/api/auth/register
 | POST | `/api/auth/logout` | Clear session |
 | GET | `/api/auth/me` | Current user info |
 | POST | `/api/invoices/upload` | Upload invoice image or PDF |
-| GET | `/api/invoices` | List invoices with status |
+| GET | `/api/invoices/` | List invoices with status |
 | GET | `/api/invoices/:id` | Invoice detail (lines, discrepancies, actions) |
 | GET | `/api/invoices/discrepancies` | All discrepancies for the store |
-| GET | `/api/actions` | All pending actions for the store |
-| POST | `/api/actions/:id/approve` | Approve a pending action |
-| POST | `/api/actions/:id/reject` | Reject a pending action |
-| POST | `/api/history/import` | Import store records JSON |
+| GET | `/api/actions/` | All pending actions for the store |
+| POST | `/api/actions/:id/approve` | Approve — applies side-effect per action type |
+| POST | `/api/actions/:id/reject` | Reject — sets decided_at only, no data change |
+| POST | `/api/history/import` | Upsert vendors, costs, promos, notices from JSON |
 
 See `backend/history_schema.md` for the JSON import format.
 

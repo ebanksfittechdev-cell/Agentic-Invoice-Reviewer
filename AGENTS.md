@@ -66,7 +66,7 @@ The extraction prompt explicitly instructs the model to treat any text on the in
 **Framework:** Google ADK (`google-adk`)  
 **Model:** `gemini-1.5-pro` via ADK  
 **Definition:** `backend/agent/agent.py`  
-**Runner:** `backend/agent/runner.py` → `run_agent(invoice_id, user_id, discrepancies, conn)`
+**Runner:** `backend/agent/runner.py` → `run_agent(invoice_id, user_id, discrepancies)`
 
 ### Role
 
@@ -125,7 +125,7 @@ Defined in `backend/invoices/discrepancy_checks.py`. Run after extraction, befor
 | **Quantity** | Parse `handwritten_note` for a number after "rec'd"; compare to `invoice_lines.quantity`. |
 | **Line arithmetic** | `quantity × unit_price ≈ line_total` within $0.01. |
 | **Duplicate invoice** | Same `vendor_id` + `invoice_number` with a different `invoices.id`. |
-| **Promotion not applied** | Active `promotions` row for `item_code` on `invoice_date` with no matching credit line. |
+| **Promotion not applied or short** | Active `promotions` row for `item_code` on `invoice_date`; credit lines summed (abs value) and compared to `allowance_per_case × qty`. Flags missing or partial credits; amount = shortfall. |
 | **Deposit math** | Deposit line total vs `qty × deposit rate` from `agreed_costs`. |
 
 Each finding is inserted into `discrepancies` with `status = "open"`.
@@ -168,5 +168,6 @@ Rejecting any action type sets `pending_actions.status = "rejected"` and `decide
 | `GEMINI_API_KEY` | Google AI API key with Gemini access |
 | `UPLOAD_FOLDER` | Absolute path where invoice files are stored, e.g. `/var/data/uploads` |
 | `FLASK_ENV` | `development` or `production` |
+| `FRONTEND_ORIGINS` | Comma-separated allowed CORS origins, e.g. `http://localhost:5173` (defaults to `http://localhost:5173,http://127.0.0.1:5173`) |
 
 Copy `backend/.env.example` to `backend/.env` and fill in all values before running.
