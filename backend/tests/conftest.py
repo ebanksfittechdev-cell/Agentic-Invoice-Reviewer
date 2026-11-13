@@ -1,12 +1,12 @@
 """
 conftest.py — shared fixtures for all backend tests.
 
-Uses an in-memory SQLite database so tests run without a Postgres instance.
+Uses an in-memory SQLite database so tests never touch the dev database.
 Each test gets a fresh set of rows via per-test table truncation.
 
-SAFETY GUARD: before create_all(), the bound engine is asserted to be SQLite.
-If the guard fires it means create_app() built a Postgres engine and the test
-run would mutate the real dev database — we abort loudly instead.
+SAFETY GUARD: before create_all(), the bound engine is asserted to be an
+in-memory SQLite database. If the guard fires it means create_app() built the
+file-backed dev engine and the test run would mutate it — we abort loudly.
 """
 
 import pytest
@@ -25,12 +25,15 @@ def app():
     })
     with test_app.app_context():
         # --- MANDATORY GUARD ---
-        # Abort loudly before touching any DB if the engine is not SQLite.
-        driver = _db.engine.url.drivername
-        assert driver == "sqlite", (
-            f"REFUSING to run tests: engine is '{_db.engine.url}' "
-            f"(drivername='{driver}'). Tests must use sqlite:///:memory:. "
-            "This guard prevents wiping the dev Postgres database."
+        # Abort loudly before touching any DB unless it is in-memory SQLite.
+        url = _db.engine.url
+        assert url.drivername == "sqlite", (
+            f"REFUSING to run tests: engine is '{url}' "
+            f"(drivername='{url.drivername}'). Tests must use sqlite:///:memory:."
+        )
+        assert url.database in (None, "", ":memory:"), (
+            f"REFUSING to run tests: engine is '{url}' but tests must use "
+            "sqlite:///:memory:. This guard prevents wiping the dev SQLite file."
         )
         # Print for confirmation in CI / local output
         print(f"\n[conftest] test engine: {_db.engine.url}")

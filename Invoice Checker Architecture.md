@@ -2,7 +2,7 @@ git@github.com:ebanksfittechdev-cell/Agentic-Invoice-Reviewer.git# Invoice Check
 
 Nov 12, 2026 · @Ethan Adragna
 
-A web app for independent grocers: code checks supplier invoices against the store's records, an agent decides which mismatches are real, and the owner approves disputes and cost updates. Stack: React, Flask, Postgres, Google ADK with Gemini.
+A web app for independent grocers: code checks supplier invoices against the store's records, an agent decides which mismatches are real, and the owner approves disputes and cost updates. Stack: React, Flask, SQLite, Google ADK with Gemini.
 
 ## What it does
 
@@ -25,19 +25,19 @@ The model reads, code calculates, the agent judges, the owner decides.
 
 The same chat answers questions such as "How much did Lakeshore overcharge us this month?" using the agent's read tools.
 
-## Database (Postgres, 9 tables)
+## Database (SQLite, 9 tables)
 
 One account = one store. Every table except `users` and the line tables carries `user_id`, and every query filters by it.
 
-- **users**: `id` SERIAL PK · `email` TEXT UNIQUE · `password_hash` TEXT · `store_name` TEXT · `created_at` TIMESTAMPTZ
-- **vendors**: `id` SERIAL PK · `user_id` INT FK · `name` TEXT · `account_no` TEXT · `terms` TEXT
-- **agreed_costs**: `id` SERIAL PK · `user_id` INT FK · `vendor_id` INT FK · `item_code` TEXT · `description` TEXT · `unit` TEXT · `pack_size` INT · `cost` NUMERIC(10,2) · `updated_at` TIMESTAMPTZ
-- **promotions**: `id` SERIAL PK · `user_id` INT FK · `vendor_id` INT FK · `item_code` TEXT · `description` TEXT · `allowance_per_case` NUMERIC(10,2) · `start_date` DATE · `end_date` DATE
-- **vendor_notices**: `id` SERIAL PK · `user_id` INT FK · `vendor_id` INT FK · `notice_date` DATE · `subject` TEXT · `body` TEXT
-- **invoices**: `id` SERIAL PK · `user_id` INT FK · `vendor_id` INT FK · `invoice_number` TEXT · `invoice_date` DATE · `total` NUMERIC(10,2) · `status` TEXT · `image_path` TEXT · `uploaded_at` TIMESTAMPTZ
-- **invoice_lines**: `id` SERIAL PK · `invoice_id` INT FK · `line_type` TEXT · `item_code` TEXT · `description` TEXT · `quantity` NUMERIC · `unit` TEXT · `unit_price` NUMERIC(10,2) · `line_total` NUMERIC(10,2) · `handwritten_note` TEXT
-- **discrepancies**: `id` SERIAL PK · `user_id` INT FK · `invoice_id` INT FK · `type` TEXT · `item_code` TEXT · `amount` NUMERIC(10,2) · `status` TEXT · `explanation` TEXT · `created_at` TIMESTAMPTZ
-- **pending_actions**: `id` SERIAL PK · `user_id` INT FK · `invoice_id` INT FK · `action_type` TEXT · `details` JSONB · `status` TEXT · `created_at` TIMESTAMPTZ · `decided_at` TIMESTAMPTZ
+- **users**: `id` INTEGER PK · `email` TEXT UNIQUE · `password_hash` TEXT · `store_name` TEXT · `created_at` DATETIME
+- **vendors**: `id` INTEGER PK · `user_id` INT FK · `name` TEXT · `account_no` TEXT · `terms` TEXT
+- **agreed_costs**: `id` INTEGER PK · `user_id` INT FK · `vendor_id` INT FK · `item_code` TEXT · `description` TEXT · `unit` TEXT · `pack_size` INT · `cost` NUMERIC(10,2) · `updated_at` DATETIME
+- **promotions**: `id` INTEGER PK · `user_id` INT FK · `vendor_id` INT FK · `item_code` TEXT · `description` TEXT · `allowance_per_case` NUMERIC(10,2) · `start_date` DATE · `end_date` DATE
+- **vendor_notices**: `id` INTEGER PK · `user_id` INT FK · `vendor_id` INT FK · `notice_date` DATE · `subject` TEXT · `body` TEXT
+- **invoices**: `id` INTEGER PK · `user_id` INT FK · `vendor_id` INT FK · `invoice_number` TEXT · `invoice_date` DATE · `total` NUMERIC(10,2) · `status` TEXT · `image_path` TEXT · `uploaded_at` DATETIME
+- **invoice_lines**: `id` INTEGER PK · `invoice_id` INT FK · `line_type` TEXT · `item_code` TEXT · `description` TEXT · `quantity` NUMERIC · `unit` TEXT · `unit_price` NUMERIC(10,2) · `line_total` NUMERIC(10,2) · `handwritten_note` TEXT
+- **discrepancies**: `id` INTEGER PK · `user_id` INT FK · `invoice_id` INT FK · `type` TEXT · `item_code` TEXT · `amount` NUMERIC(10,2) · `status` TEXT · `explanation` TEXT · `created_at` DATETIME
+- **pending_actions**: `id` INTEGER PK · `user_id` INT FK · `invoice_id` INT FK · `action_type` TEXT · `details` TEXT · `status` TEXT · `created_at` DATETIME · `decided_at` DATETIME
 
 ### Status values
 
@@ -106,7 +106,7 @@ Action cards in chat: dispute draft (email text plus Copy), cost update (old →
 Each cut is mentioned in the pitch as the roadmap, not built.
 
 - Onboarding and account settings
-- Saved chat history: agent sessions are in memory, but all results are saved in Postgres
+- Saved chat history: agent sessions are in memory, but all results are saved in SQLite
 - Purchase orders and a receiving screen: the handwritten "rec'd" on the photo is the receiving record
 - Sending real email: Approve marks a dispute "ready" and shows text to copy
 - Email, point-of-sale and vendor-portal integrations

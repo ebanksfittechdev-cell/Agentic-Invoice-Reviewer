@@ -1,5 +1,8 @@
 # Agentic Invoice Reviewer — Backend Plan
 
+> **Historical note:** this plan was written for PostgreSQL. The implementation now
+> uses SQLite (`backend/instance/invoice_reviewer.db`) — see `README.md`.
+
 ## Overview
 
 Build the complete Flask backend for the Agentic Invoice Reviewer: environment setup, Postgres schema, session-based auth API, invoice upload and Gemini extraction, discrepancy checks, Google ADK agent with read/write tools, and owner-approval endpoints. The backend exposes a JSON REST API consumed by the React frontend.
