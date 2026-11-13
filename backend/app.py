@@ -23,7 +23,9 @@ def create_app(config_overrides: dict | None = None):
     from db import db
     db.init_app(app)
 
-    CORS(app, origins=["http://localhost:5173"], supports_credentials=True)
+    default_origins = "http://localhost:5173,http://127.0.0.1:5173"
+    origins = [o.strip() for o in os.environ.get("FRONTEND_ORIGINS", default_origins).split(",") if o.strip()]
+    CORS(app, origins=origins, supports_credentials=True)
 
     from auth.routes import auth_bp
     from invoices.routes import invoices_bp

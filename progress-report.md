@@ -9,7 +9,7 @@
 
 ## What's been built
 
-The Flask backend is fully scaffolded and the core invoice processing pipeline is working end to end. Here's what exists and what still needs to be done.
+The Flask backend is fully scaffolded and the code-driven part of the invoice pipeline (upload → extraction → checks) works end to end. The agent stage (Sub-Task 6) is not built yet. Here's what exists and what still needs to be done.
 
 ---
 
@@ -24,7 +24,7 @@ The Flask backend is fully scaffolded and the core invoice processing pipeline i
 - Root `.gitignore` covering Python, Node, env files, uploads, editors, and OS artefacts
 
 ### 2. Postgres schema + demo seed
-- `schema.sql` — all 9 tables with FKs, indexes, `IF NOT EXISTS`
+- `schema.sql` — legacy DDL for all 9 tables with FKs, indexes, and `IF NOT EXISTS`; currently unused because `init_db.py` builds the schema with `db.create_all()`
 - `db.py` — SQLAlchemy `db` instance + all 9 ORM models with typed columns and relationships
 - `init_db.py` — `db.create_all()` + seeds `demo@store.com / demo1234` with:
   - 2 vendors (Lakeshore Beverages, Summit Foods)
@@ -80,8 +80,9 @@ A round of code review found five flags. All are fixed and committed:
 ## Test suite
 
 **Run command:** `python -m pytest tests/test_discrepancy_checks.py -v`  
-**Result: 22 passed, 0 failed**  
-**Engine:** `sqlite:///:memory:` — Postgres was not touched
+**Result: 22 passed, 0 failed (4.99s), re-verified locally**  
+**Engine:** `sqlite:///:memory:` — Postgres was not touched (row counts identical before/after)  
+**Warning:** one harmless `DeprecationWarning` from `google-genai`'s `types.py` (not project code)
 
 Coverage: all six checks (price, quantity, line_arithmetic, duplicate_invoice, promotion, deposit) plus user-scoping on `/api/invoices/discrepancies` and unauthenticated 401.
 
@@ -110,11 +111,14 @@ All 9 tables present, demo data intact:
 | discrepancies | 2 |
 | pending_actions | 2 |
 
+**Data-loss caveat:** this is demo data only. The Flag 5 wipe destroyed the temporary `pickle@store.com` and `test@store.com` accounts created during manual auth testing. `init_db.py` restores only `demo@store.com / demo1234`; the other accounts must be re-registered if needed.
+
 ---
 
 ## Commit log (branch `arodgers`)
 
 ```
+bd6a693  docs: add progress report for Big Pickle
 a4ad461  fix: safe test isolation, credit sign normalisation, dev-requirements
 d64bdf9  fix: address five review flags on discrepancy checks
 7d759b5  chore: ignore cookies.txt test artifact
