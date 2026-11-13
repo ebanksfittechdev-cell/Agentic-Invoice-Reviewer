@@ -17,146 +17,134 @@ db = SQLAlchemy(model_class=Base)
 # Models
 # ---------------------------------------------------------------------------
 
+from sqlalchemy.dialects.postgresql import JSONB
+ 
+
+ 
+ 
 class User(db.Model):
     __tablename__ = "users"
-
-    id:            Mapped[int]  = mapped_column(Integer, primary_key=True)
-    email:         Mapped[str]  = mapped_column(Text, unique=True, nullable=False)
-    password_hash: Mapped[str]  = mapped_column(Text, nullable=False)
-    store_name:    Mapped[str]  = mapped_column(Text, nullable=False)
-    created_at:    Mapped[DateTime] = mapped_column(DateTime(timezone=True), server_default=func.now())
-
-    vendors:        Mapped[list["Vendor"]]        = relationship(back_populates="user", cascade="all, delete-orphan")
-    invoices:       Mapped[list["Invoice"]]       = relationship(back_populates="user", cascade="all, delete-orphan")
-    discrepancies:  Mapped[list["Discrepancy"]]   = relationship(back_populates="user", cascade="all, delete-orphan")
-    pending_actions: Mapped[list["PendingAction"]] = relationship(back_populates="user", cascade="all, delete-orphan")
-
-
+ 
+    id = db.Column(db.Integer, primary_key=True)
+    email = db.Column(db.Text, unique=True, nullable=False)
+    password_hash = db.Column(db.Text, nullable=False)
+    store_name = db.Column(db.Text, nullable=False)
+    created_at = db.Column(db.DateTime(timezone=True), server_default=db.func.now(), nullable=False)
+ 
+    vendors = db.relationship("Vendor", backref="user", lazy=True, cascade="all, delete-orphan")
+    # Read-only shortcut: users -> vendors -> invoices
+    invoices = db.relationship("Invoice", secondary="vendors", viewonly=True)
+ 
+ 
 class Vendor(db.Model):
     __tablename__ = "vendors"
-
-    id:         Mapped[int]        = mapped_column(Integer, primary_key=True)
-    user_id:    Mapped[int]        = mapped_column(Integer, db.ForeignKey("users.id"), nullable=False, index=True)
-    name:       Mapped[str]        = mapped_column(Text, nullable=False)
-    account_no: Mapped[str | None] = mapped_column(Text)
-    terms:      Mapped[str | None] = mapped_column(Text)
-
-    user:          Mapped["User"]            = relationship(back_populates="vendors")
-    agreed_costs:  Mapped[list["AgreedCost"]]  = relationship(back_populates="vendor", cascade="all, delete-orphan")
-    promotions:    Mapped[list["Promotion"]]   = relationship(back_populates="vendor", cascade="all, delete-orphan")
-    vendor_notices: Mapped[list["VendorNotice"]] = relationship(back_populates="vendor", cascade="all, delete-orphan")
-    invoices:      Mapped[list["Invoice"]]     = relationship(back_populates="vendor", cascade="all, delete-orphan")
-
-
+ 
+    id = db.Column(db.Integer, primary_key=True)
+    user_id = db.Column(db.Integer, db.ForeignKey("users.id"), nullable=False, index=True)
+    name = db.Column(db.Text, nullable=False)
+    account_no = db.Column(db.Text)
+    terms = db.Column(db.Text)
+ 
+    agreed_costs = db.relationship("AgreedCost", backref="vendor", lazy=True, cascade="all, delete-orphan")
+    promotions = db.relationship("Promotion", backref="vendor", lazy=True, cascade="all, delete-orphan")
+    vendor_notices = db.relationship("VendorNotice", backref="vendor", lazy=True, cascade="all, delete-orphan")
+    invoices = db.relationship("Invoice", backref="vendor", lazy=True, cascade="all, delete-orphan")
+ 
+ 
 class AgreedCost(db.Model):
     __tablename__ = "agreed_costs"
-
-    id:          Mapped[int]        = mapped_column(Integer, primary_key=True)
-    user_id:     Mapped[int]        = mapped_column(Integer, db.ForeignKey("users.id"), nullable=False, index=True)
-    vendor_id:   Mapped[int]        = mapped_column(Integer, db.ForeignKey("vendors.id"), nullable=False, index=True)
-    item_code:   Mapped[str]        = mapped_column(Text, nullable=False)
-    description: Mapped[str | None] = mapped_column(Text)
-    unit:        Mapped[str | None] = mapped_column(Text)
-    pack_size:   Mapped[int | None] = mapped_column(Integer)
-    cost:        Mapped[float]      = mapped_column(Numeric(10, 2), nullable=False)
-    updated_at:  Mapped[DateTime]   = mapped_column(DateTime(timezone=True), server_default=func.now())
-
-    vendor: Mapped["Vendor"] = relationship(back_populates="agreed_costs")
-
-
+    __table_args__ = (db.UniqueConstraint("vendor_id", "item_code"),)
+ 
+    id = db.Column(db.Integer, primary_key=True)
+    vendor_id = db.Column(db.Integer, db.ForeignKey("vendors.id"), nullable=False, index=True)
+    item_code = db.Column(db.Text, nullable=False)
+    description = db.Column(db.Text)
+    unit = db.Column(db.Text)
+    pack_size = db.Column(db.Integer)
+    cost = db.Column(db.Numeric(10, 2), nullable=False)
+    updated_at = db.Column(
+        db.DateTime(timezone=True),
+        server_default=db.func.now(),
+        onupdate=db.func.now(),
+        nullable=False,
+    )
+ 
+ 
 class Promotion(db.Model):
     __tablename__ = "promotions"
-
-    id:                 Mapped[int]   = mapped_column(Integer, primary_key=True)
-    user_id:            Mapped[int]   = mapped_column(Integer, db.ForeignKey("users.id"), nullable=False, index=True)
-    vendor_id:          Mapped[int]   = mapped_column(Integer, db.ForeignKey("vendors.id"), nullable=False, index=True)
-    item_code:          Mapped[str]   = mapped_column(Text, nullable=False)
-    description:        Mapped[str | None] = mapped_column(Text)
-    allowance_per_case: Mapped[float] = mapped_column(Numeric(10, 2), nullable=False)
-    start_date:         Mapped[Date]  = mapped_column(Date, nullable=False)
-    end_date:           Mapped[Date]  = mapped_column(Date, nullable=False)
-
-    vendor: Mapped["Vendor"] = relationship(back_populates="promotions")
-
-
+ 
+    id = db.Column(db.Integer, primary_key=True)
+    vendor_id = db.Column(db.Integer, db.ForeignKey("vendors.id"), nullable=False, index=True)
+    item_code = db.Column(db.Text, nullable=False)
+    description = db.Column(db.Text)
+    allowance_per_case = db.Column(db.Numeric(10, 2), nullable=False)
+    start_date = db.Column(db.Date, nullable=False)
+    end_date = db.Column(db.Date, nullable=False)
+ 
+ 
 class VendorNotice(db.Model):
     __tablename__ = "vendor_notices"
-
-    id:          Mapped[int]        = mapped_column(Integer, primary_key=True)
-    user_id:     Mapped[int]        = mapped_column(Integer, db.ForeignKey("users.id"), nullable=False, index=True)
-    vendor_id:   Mapped[int]        = mapped_column(Integer, db.ForeignKey("vendors.id"), nullable=False, index=True)
-    notice_date: Mapped[Date]       = mapped_column(Date, nullable=False)
-    subject:     Mapped[str | None] = mapped_column(Text)
-    body:        Mapped[str | None] = mapped_column(Text)
-
-    vendor: Mapped["Vendor"] = relationship(back_populates="vendor_notices")
-
-
+ 
+    id = db.Column(db.Integer, primary_key=True)
+    vendor_id = db.Column(db.Integer, db.ForeignKey("vendors.id"), nullable=False, index=True)
+    notice_date = db.Column(db.Date, nullable=False)
+    subject = db.Column(db.Text)
+    body = db.Column(db.Text)
+ 
+ 
 class Invoice(db.Model):
     __tablename__ = "invoices"
-
-    id:             Mapped[int]        = mapped_column(Integer, primary_key=True)
-    user_id:        Mapped[int]        = mapped_column(Integer, db.ForeignKey("users.id"), nullable=False, index=True)
-    vendor_id:      Mapped[int]        = mapped_column(Integer, db.ForeignKey("vendors.id"), nullable=False, index=True)
-    invoice_number: Mapped[str]        = mapped_column(Text, nullable=False)
-    invoice_date:   Mapped[Date | None] = mapped_column(Date)
-    total:          Mapped[float | None] = mapped_column(Numeric(10, 2))
-    status:         Mapped[str]        = mapped_column(Text, nullable=False, default="uploaded")
-    image_path:     Mapped[str | None] = mapped_column(Text)
-    uploaded_at:    Mapped[DateTime]   = mapped_column(DateTime(timezone=True), server_default=func.now())
-
-    user:            Mapped["User"]              = relationship(back_populates="invoices")
-    vendor:          Mapped["Vendor"]            = relationship(back_populates="invoices")
-    lines:           Mapped[list["InvoiceLine"]] = relationship(back_populates="invoice", cascade="all, delete-orphan")
-    discrepancies:   Mapped[list["Discrepancy"]] = relationship(back_populates="invoice", cascade="all, delete-orphan")
-    pending_actions: Mapped[list["PendingAction"]] = relationship(back_populates="invoice", cascade="all, delete-orphan")
-
-
+    __table_args__ = (db.UniqueConstraint("vendor_id", "invoice_number"),)
+ 
+    id = db.Column(db.Integer, primary_key=True)
+    vendor_id = db.Column(db.Integer, db.ForeignKey("vendors.id"), nullable=False, index=True)
+    invoice_number = db.Column(db.Text, nullable=False)
+    invoice_date = db.Column(db.Date)
+    total = db.Column(db.Numeric(10, 2))
+    status = db.Column(db.Text, nullable=False, default="uploaded")
+    image_path = db.Column(db.Text)
+    uploaded_at = db.Column(db.DateTime(timezone=True), server_default=db.func.now(), nullable=False)
+ 
+    lines = db.relationship("InvoiceLine", backref="invoice", lazy=True, cascade="all, delete-orphan")
+    discrepancies = db.relationship("Discrepancy", backref="invoice", lazy=True, cascade="all, delete-orphan")
+    pending_actions = db.relationship("PendingAction", backref="invoice", lazy=True, cascade="all, delete-orphan")
+ 
+ 
 class InvoiceLine(db.Model):
     __tablename__ = "invoice_lines"
-
-    id:               Mapped[int]        = mapped_column(Integer, primary_key=True)
-    invoice_id:       Mapped[int]        = mapped_column(Integer, db.ForeignKey("invoices.id"), nullable=False, index=True)
-    line_type:        Mapped[str]        = mapped_column(Text, nullable=False, default="item")
-    item_code:        Mapped[str | None] = mapped_column(Text)
-    description:      Mapped[str | None] = mapped_column(Text)
-    quantity:         Mapped[float | None] = mapped_column(Numeric)
-    unit:             Mapped[str | None] = mapped_column(Text)
-    unit_price:       Mapped[float | None] = mapped_column(Numeric(10, 2))
-    line_total:       Mapped[float | None] = mapped_column(Numeric(10, 2))
-    handwritten_note: Mapped[str | None] = mapped_column(Text)
-
-    invoice: Mapped["Invoice"] = relationship(back_populates="lines")
-
-
+ 
+    id = db.Column(db.Integer, primary_key=True)
+    invoice_id = db.Column(db.Integer, db.ForeignKey("invoices.id"), nullable=False, index=True)
+    line_type = db.Column(db.Text, nullable=False, default="item")
+    item_code = db.Column(db.Text)
+    description = db.Column(db.Text)
+    quantity = db.Column(db.Numeric)
+    unit = db.Column(db.Text)
+    unit_price = db.Column(db.Numeric(10, 2))
+    line_total = db.Column(db.Numeric(10, 2))
+    handwritten_note = db.Column(db.Text)
+ 
+ 
 class Discrepancy(db.Model):
     __tablename__ = "discrepancies"
-
-    id:          Mapped[int]        = mapped_column(Integer, primary_key=True)
-    user_id:     Mapped[int]        = mapped_column(Integer, db.ForeignKey("users.id"), nullable=False, index=True)
-    invoice_id:  Mapped[int]        = mapped_column(Integer, db.ForeignKey("invoices.id"), nullable=False, index=True)
-    type:        Mapped[str]        = mapped_column(Text, nullable=False)
-    item_code:   Mapped[str | None] = mapped_column(Text)
-    amount:      Mapped[float | None] = mapped_column(Numeric(10, 2))
-    status:      Mapped[str]        = mapped_column(Text, nullable=False, default="open")
-    explanation: Mapped[str | None] = mapped_column(Text)
-    created_at:  Mapped[DateTime]   = mapped_column(DateTime(timezone=True), server_default=func.now())
-
-    user:    Mapped["User"]    = relationship(back_populates="discrepancies")
-    invoice: Mapped["Invoice"] = relationship(back_populates="discrepancies")
-
-
+ 
+    id = db.Column(db.Integer, primary_key=True)
+    invoice_id = db.Column(db.Integer, db.ForeignKey("invoices.id"), nullable=False, index=True)
+    type = db.Column(db.Text, nullable=False)
+    item_code = db.Column(db.Text)
+    amount = db.Column(db.Numeric(10, 2))
+    status = db.Column(db.Text, nullable=False, default="open")
+    explanation = db.Column(db.Text)
+    created_at = db.Column(db.DateTime(timezone=True), server_default=db.func.now(), nullable=False)
+ 
+ 
 class PendingAction(db.Model):
     __tablename__ = "pending_actions"
-
-    id:          Mapped[int]        = mapped_column(Integer, primary_key=True)
-    user_id:     Mapped[int]        = mapped_column(Integer, db.ForeignKey("users.id"), nullable=False, index=True)
-    invoice_id:  Mapped[int]        = mapped_column(Integer, db.ForeignKey("invoices.id"), nullable=False, index=True)
-    action_type: Mapped[str]        = mapped_column(Text, nullable=False)
-    details:     Mapped[dict | None] = mapped_column(JSONB)
-    status:      Mapped[str]        = mapped_column(Text, nullable=False, default="pending")
-    created_at:  Mapped[DateTime]   = mapped_column(DateTime(timezone=True), server_default=func.now())
-    decided_at:  Mapped[DateTime | None] = mapped_column(DateTime(timezone=True))
-
-    user:    Mapped["User"]    = relationship(back_populates="pending_actions")
-    invoice: Mapped["Invoice"] = relationship(back_populates="pending_actions")
+ 
+    id = db.Column(db.Integer, primary_key=True)
+    invoice_id = db.Column(db.Integer, db.ForeignKey("invoices.id"), nullable=False, index=True)
+    action_type = db.Column(db.Text, nullable=False)
+    details = db.Column(JSONB)
+    status = db.Column(db.Text, nullable=False, default="pending")
+    created_at = db.Column(db.DateTime(timezone=True), server_default=db.func.now(), nullable=False)
+    decided_at = db.Column(db.DateTime(timezone=True))
