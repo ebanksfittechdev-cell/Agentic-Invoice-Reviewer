@@ -10,7 +10,14 @@ def create_app():
     app = Flask(__name__)
     app.config.from_object("config.Config")
 
+    # SQLAlchemy needs the URI under this key
+    app.config["SQLALCHEMY_DATABASE_URI"] = app.config["DATABASE_URL"]
+    app.config["SQLALCHEMY_TRACK_MODIFICATIONS"] = False
+
     os.makedirs(app.config["UPLOAD_FOLDER"], exist_ok=True)
+
+    from db import db
+    db.init_app(app)
 
     CORS(app, origins=["http://localhost:5173"], supports_credentials=True)
 

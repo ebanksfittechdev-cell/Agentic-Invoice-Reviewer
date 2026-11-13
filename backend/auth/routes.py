@@ -1,7 +1,7 @@
 import bcrypt
 from flask import Blueprint, request, session, jsonify
 
-from db import get_db, put_db
+from db import db, User
 
 auth_bp = Blueprint("auth", __name__)
 
@@ -16,25 +16,16 @@ def register():
     if not email or not password or not store_name:
         return jsonify({"error": "email, password, and store_name are required"}), 400
 
+    if User.query.filter_by(email=email).first():
+        return jsonify({"error": "Email already registered"}), 409
+
     pw_hash = bcrypt.hashpw(password.encode(), bcrypt.gensalt()).decode()
+    user = User(email=email, password_hash=pw_hash, store_name=store_name)
+    db.session.add(user)
+    db.session.commit()
 
-    conn = get_db()
-    try:
-        with conn.cursor() as cur:
-            cur.execute("SELECT id FROM users WHERE email = %s", (email,))
-            if cur.fetchone():
-                return jsonify({"error": "Email already registered"}), 409
-            cur.execute(
-                "INSERT INTO users (email, password_hash, store_name) VALUES (%s, %s, %s) RETURNING id",
-                (email, pw_hash, store_name),
-            )
-            user_id = cur.fetchone()[0]
-        conn.commit()
-    finally:
-        put_db(conn)
-
-    session["user_id"] = user_id
-    return jsonify({"user_id": user_id, "store_name": store_name}), 201
+    session["user_id"] = user.id
+    return jsonify({"user_id": user.id, "store_name": user.store_name}), 201
 
 
 @auth_bp.post("/login")
@@ -46,22 +37,12 @@ def login():
     if not email or not password:
         return jsonify({"error": "email and password are required"}), 400
 
-    conn = get_db()
-    try:
-        with conn.cursor() as cur:
-            cur.execute(
-                "SELECT id, password_hash, store_name FROM users WHERE email = %s",
-                (email,),
-            )
-            row = cur.fetchone()
-    finally:
-        put_db(conn)
-
-    if not row or not bcrypt.checkpw(password.encode(), row[1].encode()):
+    user = User.query.filter_by(email=email).first()
+    if not user or not bcrypt.checkpw(password.encode(), user.password_hash.encode()):
         return jsonify({"error": "Invalid email or password"}), 401
 
-    session["user_id"] = row[0]
-    return jsonify({"user_id": row[0], "store_name": row[2]}), 200
+    session["user_id"] = user.id
+    return jsonify({"user_id": user.id, "store_name": user.store_name}), 200
 
 
 @auth_bp.post("/logout")
@@ -76,24 +57,14 @@ def me():
     if not user_id:
         return jsonify({"error": "Not authenticated"}), 401
 
-    conn = get_db()
-    try:
-        with conn.cursor() as cur:
-            cur.execute(
-                "SELECT id, email, store_name, created_at FROM users WHERE id = %s",
-                (user_id,),
-            )
-            row = cur.fetchone()
-    finally:
-        put_db(conn)
-
-    if not row:
+    user = db.session.get(User, user_id)
+    if not user:
         session.clear()
         return jsonify({"error": "User not found"}), 401
 
     return jsonify({
-        "user_id": row[0],
-        "email": row[1],
-        "store_name": row[2],
-        "created_at": row[3].isoformat(),
+        "user_id": user.id,
+        "email": user.email,
+        "store_name": user.store_name,
+        "created_at": user.created_at.isoformat(),
     }), 200
