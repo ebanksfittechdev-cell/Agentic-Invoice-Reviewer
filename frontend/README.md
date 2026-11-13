@@ -1,16 +1,124 @@
-# React + Vite
+# Frontend — Agentic Invoice Reviewer
 
-This template provides a minimal setup to get React working in Vite with HMR and some Oxlint rules.
+React 19 + Vite client for the Agentic Invoice Reviewer Flask API. The dev server
+proxies `/api` requests to the backend, so the browser only talks to Vite.
 
-Currently, two official plugins are available:
+## Quick start from a fresh clone
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Oxc](https://oxc.rs)
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/)
+You need the backend running before the frontend. See the
+[root README](../README.md) for full PostgreSQL/backend setup.
 
-## React Compiler
+### 1. Clone the repository
 
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
+```bash
+git clone https://github.com/ebanksfittechdev-cell/Agentic-Invoice-Reviewer.git
+cd Agentic-Invoice-Reviewer
+git switch arodgers
+```
 
-## Expanding the Oxlint configuration
+### 2. Start the backend (terminal 1)
 
-If you are developing a production application, we recommend using TypeScript with type-aware lint rules enabled. Check out the [TS template](https://github.com/vitejs/vite/tree/main/packages/create-vite/template-react-ts) for information on how to integrate TypeScript and Oxlint's TypeScript related rules in your project.
+```bash
+cd backend
+python3 -m venv venv
+source venv/bin/activate          # Windows: venv\Scripts\activate
+pip install -r requirements.txt
+cp .env.example .env              # set DATABASE_URL, SECRET_KEY, GEMINI_API_KEY
+python init_db.py                 # creates tables + demo account
+flask run                         # http://127.0.0.1:5000
+```
+
+PostgreSQL must be installed and running first — see step 2 of the
+[root README](../README.md).
+
+### 3. Start the frontend (terminal 2)
+
+```bash
+cd frontend
+npm install
+cp .env.example .env              # optional for a local backend
+npm run dev                       # http://localhost:5173
+```
+
+Open http://localhost:5173 and log in with `demo@store.com` / `demo1234`.
+
+## Configuration
+
+`frontend/.env` controls the Vite proxy target:
+
+```env
+VITE_API_PROXY=http://127.0.0.1:5000
+```
+
+Use `127.0.0.1`, not `localhost`: on many systems `localhost` resolves to IPv6
+(`::1`) while Flask listens only on IPv4, which causes `ECONNREFUSED`.
+
+After changing `.env`, restart `npm run dev`.
+
+## Running against a backend on another machine
+
+On the backend machine:
+
+```bash
+flask run --host=0.0.0.0 --port=5000
+hostname -I                       # note the LAN IP
+# open the firewall if needed, e.g. sudo ufw allow 5000/tcp
+```
+
+On the frontend machine, set `frontend/.env`:
+
+```env
+VITE_API_PROXY=http://<backend-lan-ip>:5000
+```
+
+Then:
+
+```bash
+npm run dev -- --host 0.0.0.0
+```
+
+If the browser calls the backend directly (not through the proxy), also add the
+frontend origin to `FRONTEND_ORIGINS` in `backend/.env` (comma-separated).
+
+## Scripts
+
+| Command | Description |
+|---------|-------------|
+| `npm run dev` | Start the Vite dev server with HMR |
+| `npm run build` | Production build to `dist/` |
+| `npm run preview` | Serve the production build locally |
+| `npm run lint` | Run Oxlint |
+
+## Current UI status
+
+Only Login and Register are implemented. A successful login shows
+`alert("Logged in as <store name>")`; a successful registration switches back to
+the Log In tab with the email pre-filled. There is no router or dashboard yet.
+
+## Project layout
+
+```
+frontend/
+├── vite.config.js          # /api proxy (VITE_API_PROXY)
+├── .env.example
+└── src/
+    ├── main.jsx
+    ├── App.jsx
+    └── login page/
+        ├── login.jsx       # login + register forms
+        └── login.css
+```
+
+## Troubleshooting
+
+- **"Connection refused"**: start the backend first and confirm
+  `curl http://127.0.0.1:5000/api/auth/me` returns `401`. If it does not, the
+  frontend cannot help — fix the backend or the proxy target.
+- **Port 5173 already in use**: stop the old Vite process or run
+  `npm run dev -- --port 5174`.
+- **`localhost:5173` unreachable from another device**: run
+  `npm run dev -- --host 0.0.0.0`.
+- **CORS errors**: expected only for direct backend calls; use the proxy or add
+  the origin to `FRONTEND_ORIGINS` on the backend.
+- **Blank page / no HMR**: check the Vite terminal output for compile errors and
+  run `npm run lint`.

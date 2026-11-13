@@ -59,10 +59,18 @@ Agentic-Invoice-Reviewer/
 │   │   └── routes.py              # List, approve, reject pending actions
 │   ├── history/
 │   │   └── routes.py              # JSON store-records import
-│   └── tests/
-│       ├── conftest.py            # SQLite fixtures + factory helpers
-│       └── test_discrepancy_checks.py  # 22 tests for all six checks
+│   └── tests/                     # 93 tests, in-memory SQLite
+│       ├── conftest.py
+│       ├── test_auth.py
+│       ├── test_upload.py
+│       ├── test_checks.py
+│       ├── test_discrepancy_checks.py
+│       ├── test_agent_tools.py
+│       ├── test_actions.py
+│       └── test_history.py
 └── frontend/
+    ├── vite.config.js             # /api proxy to the backend
+    ├── .env.example               # VITE_API_PROXY
     └── src/
         ├── App.jsx
         └── login page/
@@ -72,56 +80,235 @@ Agentic-Invoice-Reviewer/
 
 ---
 
-## Getting started
+## Getting started from a fresh clone
 
-### Prerequisites
+These steps take a blank machine to a running app at `http://localhost:5173`.
+You need **two terminals**: one for the Flask API, one for Vite.
 
-- Python 3.11+
-- PostgreSQL 14+
-- A Google Cloud project with the Gemini API enabled
-- Node 20+ (for the frontend)
+### 0. Prerequisites
 
-### Backend
+| Tool | Version | Notes |
+|------|---------|-------|
+| Git | any recent | |
+| Python | 3.11+ | `python3 --version` |
+| PostgreSQL | 14+ | server and client |
+| Node.js | 20+ | includes `npm` |
+| Gemini API key | — | https://aistudio.google.com/app/apikey |
+
+On Debian/Ubuntu, also install the venv package:
+
+```bash
+sudo apt install -y python3-venv
+```
+
+Install Node 20+ from your distro or NodeSource if `node --version` is missing
+or too old.
+
+### 1. Clone the repository
+
+```bash
+git clone https://github.com/ebanksfittechdev-cell/Agentic-Invoice-Reviewer.git
+cd Agentic-Invoice-Reviewer
+
+# Active development branch:
+git switch arodgers
+```
+
+### 2. Install and start PostgreSQL
+
+Fedora / RHEL:
+
+```bash
+sudo dnf install -y postgresql-server postgresql-contrib
+sudo postgresql-setup --initdb
+sudo systemctl enable --now postgresql
+```
+
+Debian / Ubuntu:
+
+```bash
+sudo apt update
+sudo apt install -y postgresql
+sudo systemctl enable --now postgresql
+```
+
+Create the role and database used by the example `.env`:
+
+```bash
+sudo -u postgres psql <<'SQL'
+CREATE USER invoice_user WITH PASSWORD 'invoice_pass';
+CREATE DATABASE invoice_reviewer OWNER invoice_user;
+SQL
+```
+
+If the role/database already exist, skip this. To reset the password:
+
+```bash
+sudo -u postgres psql -c "ALTER USER invoice_user WITH PASSWORD 'invoice_pass';"
+```
+
+Verify the connection:
+
+```bash
+psql "postgresql://invoice_user:invoice_pass@localhost:5432/invoice_reviewer" -c "SELECT 1;"
+```
+
+### 3. Backend (Flask API) — terminal 1
 
 ```bash
 cd backend
-python -m venv venv
-source venv/bin/activate
+python3 -m venv venv
+source venv/bin/activate          # Windows: venv\Scripts\activate
+pip install --upgrade pip
 pip install -r requirements.txt
 
 cp .env.example .env
-# Edit .env — set DATABASE_URL, SECRET_KEY, GEMINI_API_KEY
-
-python init_db.py          # creates tables + seeds demo account
-flask run                  # starts on http://localhost:5000
 ```
 
-Demo account: `demo@store.com` / `demo1234` — pre-loaded with vendors, costs, and invoice history.
+Edit `backend/.env`:
 
-### Frontend
+```env
+DATABASE_URL=postgresql://invoice_user:invoice_pass@localhost:5432/invoice_reviewer
+SECRET_KEY=<output of the command below>
+GEMINI_API_KEY=<your Gemini API key>
+UPLOAD_FOLDER=/tmp/invoice_uploads
+FLASK_ENV=development
+FRONTEND_ORIGINS=http://localhost:5173,http://127.0.0.1:5173
+```
+
+Generate `SECRET_KEY`:
+
+```bash
+python -c "import secrets; print(secrets.token_hex(32))"
+```
+
+Create the schema and demo data:
+
+```bash
+mkdir -p /tmp/invoice_uploads
+python init_db.py
+```
+
+Expected output on a fresh database:
+
+```
+Schema applied.
+Demo account seeded: demo@store.com / demo1234
+```
+
+If the demo user already exists, it prints `already exists — skipping seed`.
+
+Start the API:
+
+```bash
+flask run
+# http://127.0.0.1:5000
+```
+
+Leave this terminal running. To reach the API from another machine, use:
+
+```bash
+flask run --host=0.0.0.0 --port=5000
+```
+
+Sanity check (new terminal):
+
+```bash
+curl -i http://127.0.0.1:5000/api/auth/me   # HTTP/1.1 401 (expected logged out)
+```
+
+### 4. Frontend (React + Vite) — terminal 2
+
+From the repo root:
 
 ```bash
 cd frontend
 npm install
-npm run dev                # starts on http://localhost:5173
+cp .env.example .env      # optional for a local backend
+npm run dev
+# http://localhost:5173
 ```
 
-The Vite dev server proxies `/api` requests to the backend. By default it targets
-`http://127.0.0.1:5000` (IPv4). To point at a different backend, copy
-`frontend/.env.example` to `frontend/.env` and set `VITE_API_PROXY`.
+`frontend/.env` defaults to:
 
-#### Troubleshooting: "connection refused" from the frontend
+```env
+VITE_API_PROXY=http://127.0.0.1:5000
+```
 
-- Start the backend (`flask run`) before the frontend, and confirm it responds:
-  `curl http://127.0.0.1:5000/api/auth/me` should return `401`, not a connection error.
-- If the browser and backend are on the same machine, no extra config is needed.
-  The proxy uses `127.0.0.1`, not `localhost`, because on many systems
-  `localhost` resolves to IPv6 (`::1`) while Flask listens only on IPv4.
-- If the backend runs on another machine, start it with
-  `flask run --host=0.0.0.0` and set `VITE_API_PROXY=http://<backend-ip>:5000`
-  in `frontend/.env`.
-- If the frontend runs on a non-default origin/port, set `FRONTEND_ORIGINS`
-  (comma-separated) in `backend/.env` for CORS.
+The Vite dev server proxies `/api` requests to that URL, so the browser only
+talks to `http://localhost:5173` and CORS is not involved.
+
+### 5. Log in
+
+Open http://localhost:5173 and use the demo account:
+
+- Email: `demo@store.com`
+- Password: `demo1234`
+
+Registration also works; on success it returns to the Log In tab. A successful
+login shows an alert: `Logged in as <store name>`.
+
+### 6. Run the tests
+
+```bash
+cd backend
+source venv/bin/activate
+pip install -r dev-requirements.txt
+python -m pytest -q        # 93 tests
+```
+
+The suite uses an in-memory SQLite database and never touches Postgres. A guard
+aborts the run if the bound engine is not SQLite.
+
+### 7. Frontend and backend on different machines
+
+On the **backend machine**:
+
+```bash
+flask run --host=0.0.0.0 --port=5000
+hostname -I                       # note the LAN IP
+# open the firewall if needed, e.g. sudo ufw allow 5000/tcp
+```
+
+On the **frontend machine**:
+
+```bash
+cd frontend
+cp .env.example .env
+# set VITE_API_PROXY=http://<backend-lan-ip>:5000
+npm run dev -- --host 0.0.0.0
+```
+
+Verify from the frontend machine:
+
+```bash
+curl http://<backend-lan-ip>:5000/api/auth/me   # 401 = reachable
+curl http://localhost:5173/api/auth/me          # 401 = proxy working
+```
+
+### 8. Stopping the servers
+
+Press `Ctrl+C` in each terminal. If you started them in the background, stop the
+processes listening on ports 5000 and 5173.
+
+### Troubleshooting
+
+- **"Connection refused" from the frontend**: the backend isn't running or the
+  proxy target is wrong. `curl http://127.0.0.1:5000/api/auth/me` should return
+  401. The proxy uses `127.0.0.1`, not `localhost`, because `localhost` often
+  resolves to IPv6 (`::1`) while Flask listens only on IPv4.
+- **`psql: FATAL: password authentication failed`**: re-check `DATABASE_URL` and
+  the role/password from step 2.
+- **`init_db.py` cannot connect**: Postgres isn't running
+  (`sudo systemctl status postgresql`) or the database doesn't exist.
+- **CORS errors**: only relevant when the browser calls the API directly. Add the
+  frontend origin to `FRONTEND_ORIGINS` in `backend/.env`.
+- **Upload returns `needs_review`**: `GEMINI_API_KEY` is missing/invalid or
+  extraction failed; the invoice is saved for manual review.
+- **Port already in use**: stop the old process or use
+  `flask run --port=5001` (and update `VITE_API_PROXY` to match).
+- **`localhost:5173` unreachable from another machine**: start Vite with
+  `npm run dev -- --host 0.0.0.0`.
 
 ---
 
@@ -176,6 +363,10 @@ pending_actions.status:   pending · approved · rejected
 ---
 
 ## Frontend screens
+
+> Current status: only Login and Register are implemented. A successful login
+> shows an alert; registration returns to the Log In tab. The remaining screens
+> are planned.
 
 | Screen | Description |
 |--------|-------------|
