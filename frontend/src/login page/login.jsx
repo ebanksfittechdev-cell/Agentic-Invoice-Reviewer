@@ -36,6 +36,8 @@ export default function LoginPage() {
       const data = await res.json();
       if (!res.ok) {
         setError(data.error || "Login failed");
+      } else {
+        alert(`Logged in as ${data.store_name}`);
       }
     } catch {
       setError("Could not reach the server");
@@ -58,6 +60,11 @@ export default function LoginPage() {
       const data = await res.json();
       if (!res.ok) {
         setError(data.error || "Registration failed");
+      } else {
+        setMode("login");
+        setError("");
+        setLoginForm({ email: registerForm.email, password: "" });
+        setRegisterForm({ email: "", password: "", store_name: "" });
       }
     } catch {
       setError("Could not reach the server");
@@ -74,13 +81,19 @@ export default function LoginPage() {
         <div className="auth-tabs">
           <button
             className={`auth-tab ${mode === "login" ? "active" : ""}`}
-            onClick={() => { setMode("login"); setError(""); }}
+            onClick={() => {
+              setMode("login");
+              setError("");
+            }}
           >
             Log In
           </button>
           <button
             className={`auth-tab ${mode === "register" ? "active" : ""}`}
-            onClick={() => { setMode("register"); setError(""); }}
+            onClick={() => {
+              setMode("register");
+              setError("");
+            }}
           >
             Register
           </button>
@@ -88,11 +101,25 @@ export default function LoginPage() {
 
         {mode === "login" && (
           <form className="auth-form" onSubmit={handleLogin}>
-            <label>Email
-              <input type="email" name="email" value={loginForm.email} onChange={handleLoginChange} required />
+            <label>
+              Email
+              <input
+                type="email"
+                name="email"
+                value={loginForm.email}
+                onChange={handleLoginChange}
+                required
+              />
             </label>
-            <label>Password
-              <input type="password" name="password" value={loginForm.password} onChange={handleLoginChange} required />
+            <label>
+              Password
+              <input
+                type="password"
+                name="password"
+                value={loginForm.password}
+                onChange={handleLoginChange}
+                required
+              />
             </label>
             {error && <p className="auth-error">{error}</p>}
             <button type="submit" className="auth-submit" disabled={loading}>
@@ -103,14 +130,35 @@ export default function LoginPage() {
 
         {mode === "register" && (
           <form className="auth-form" onSubmit={handleRegister}>
-            <label>Store Name
-              <input type="text" name="store_name" value={registerForm.store_name} onChange={handleRegisterChange} required />
+            <label>
+              Store Name
+              <input
+                type="text"
+                name="store_name"
+                value={registerForm.store_name}
+                onChange={handleRegisterChange}
+                required
+              />
             </label>
-            <label>Email
-              <input type="email" name="email" value={registerForm.email} onChange={handleRegisterChange} required />
+            <label>
+              Email
+              <input
+                type="email"
+                name="email"
+                value={registerForm.email}
+                onChange={handleRegisterChange}
+                required
+              />
             </label>
-            <label>Password
-              <input type="password" name="password" value={registerForm.password} onChange={handleRegisterChange} required />
+            <label>
+              Password
+              <input
+                type="password"
+                name="password"
+                value={registerForm.password}
+                onChange={handleRegisterChange}
+                required
+              />
             </label>
             {error && <p className="auth-error">{error}</p>}
             <button type="submit" className="auth-submit" disabled={loading}>
