@@ -106,20 +106,34 @@ def upload():
     db.session.commit()
 
     # --- Discrepancy checks + agent (Sub-Tasks 5 & 6) ---
-    # Imported here to avoid circular imports; will be filled in by those sub-tasks
+    import logging
+    _log = logging.getLogger(__name__)
+
     discrepancies = []
     try:
         from invoices.discrepancy_checks import run_checks
         discrepancies = run_checks(invoice.id, user_id)
-    except ImportError:
-        pass  # Sub-Task 5 not yet implemented
+    except ModuleNotFoundError as exc:
+        if exc.name != "invoices.discrepancy_checks":
+            _log.exception("Unexpected import error in discrepancy_checks")
+            raise
+        # module genuinely absent — sub-task not yet deployed
+    except Exception:
+        _log.exception("discrepancy_checks.run_checks failed for invoice %s", invoice.id)
+        raise
 
     if discrepancies and invoice.status == "checked":
         try:
             from agent.runner import run_agent
             run_agent(invoice.id, user_id, discrepancies)
-        except ImportError:
-            pass  # Sub-Task 6 not yet implemented
+        except ModuleNotFoundError as exc:
+            if exc.name != "agent.runner":
+                _log.exception("Unexpected import error in agent.runner")
+                raise
+            # module genuinely absent — sub-task not yet deployed
+        except Exception:
+            _log.exception("agent.run_agent failed for invoice %s", invoice.id)
+            raise
 
     return jsonify({
         "invoice_id": invoice.id,

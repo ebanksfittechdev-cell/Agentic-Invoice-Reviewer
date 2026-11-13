@@ -37,6 +37,12 @@ def run_checks(invoice_id: int, user_id: int) -> list[Discrepancy]:
 
 # ---------------------------------------------------------------------------
 # 1. Price check — invoice unit_price vs agreed cost
+#
+# Decision: flag both overcharges (delta > 0) and undercharges (delta < 0).
+# Both represent a mismatch against the agreed cost and should be surfaced for
+# the owner to investigate. The sign of `amount` indicates direction:
+#   positive = vendor charged more than agreed (overcharge)
+#   negative = vendor charged less than agreed (undercharge / possible credit)
 # ---------------------------------------------------------------------------
 
 def _check_prices(invoice: Invoice, lines: list[InvoiceLine], user_id: int) -> list[Discrepancy]:
@@ -53,6 +59,7 @@ def _check_prices(invoice: Invoice, lines: list[InvoiceLine], user_id: int) -> l
             continue
         delta = _dec(line.unit_price) - _dec(agreed.cost)
         if abs(delta) > Decimal("0.01"):
+            # amount is signed: positive = overcharge, negative = undercharge
             amount = (delta * _dec(line.quantity or 1)).quantize(Decimal("0.01"), ROUND_HALF_UP)
             results.append(Discrepancy(
                 user_id=user_id,
@@ -144,7 +151,12 @@ def _check_duplicate_invoice(invoice: Invoice, user_id: int) -> list[Discrepancy
 
 
 # ---------------------------------------------------------------------------
-# 5. Promotion not applied — active promo with no matching credit line
+# 5. Promotion not applied or short — active promo vs credit lines
+#
+# A credit is considered "applied" only when the total credit amount for the
+# item_code is within $0.01 of allowance_per_case × billed_qty.  A missing
+# credit and a partial credit both produce a "promotion" discrepancy; the
+# amount is the shortfall (expected - credited).
 # ---------------------------------------------------------------------------
 
 def _check_promotions(invoice: Invoice, lines: list[InvoiceLine], user_id: int) -> list[Discrepancy]:
@@ -158,33 +170,36 @@ def _check_promotions(invoice: Invoice, lines: list[InvoiceLine], user_id: int) 
         Promotion.end_date >= invoice.invoice_date,
     ).all()
 
-    # Build set of item_codes that have a credit line on this invoice
-    credit_item_codes = {
-        l.item_code for l in lines
-        if l.line_type == "credit" and l.item_code
-    }
-
     results = []
     for promo in active_promos:
-        if promo.item_code in credit_item_codes:
-            continue  # credit already present
-        # Find quantity billed for this item
+        # Quantity of this item billed on the invoice (item lines only)
         qty = sum(
             _dec(l.quantity or 0)
             for l in lines
             if l.item_code == promo.item_code and l.line_type == "item"
         )
-        if qty == 0:
-            continue  # item not on this invoice
-        amount = (_dec(promo.allowance_per_case) * qty).quantize(Decimal("0.01"), ROUND_HALF_UP)
-        results.append(Discrepancy(
-            user_id=user_id,
-            invoice_id=invoice.id,
-            type="promotion",
-            item_code=promo.item_code,
-            amount=float(amount),
-            status="open",
-        ))
+        if qty == Decimal("0"):
+            continue  # item not on this invoice — promo irrelevant
+
+        expected_credit = (_dec(promo.allowance_per_case) * qty).quantize(Decimal("0.01"), ROUND_HALF_UP)
+
+        # Sum all credit line_totals for this item_code (credits stored as positive amounts)
+        actual_credit = sum(
+            (_dec(l.line_total or 0) for l in lines
+             if l.line_type == "credit" and l.item_code == promo.item_code),
+            Decimal("0"),
+        ).quantize(Decimal("0.01"), ROUND_HALF_UP)
+
+        shortfall = (expected_credit - actual_credit).quantize(Decimal("0.01"), ROUND_HALF_UP)
+        if shortfall > Decimal("0.01"):
+            results.append(Discrepancy(
+                user_id=user_id,
+                invoice_id=invoice.id,
+                type="promotion",
+                item_code=promo.item_code,
+                amount=float(shortfall),
+                status="open",
+            ))
     return results
 
 

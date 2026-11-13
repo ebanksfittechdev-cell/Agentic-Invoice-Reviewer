@@ -115,7 +115,7 @@ All endpoints require a session cookie (set at login) except `/api/auth/register
 | POST | `/api/invoices/upload` | Upload invoice image or PDF |
 | GET | `/api/invoices` | List invoices with status |
 | GET | `/api/invoices/:id` | Invoice detail (lines, discrepancies, actions) |
-| GET | `/api/discrepancies` | All discrepancies for the store |
+| GET | `/api/invoices/discrepancies` | All discrepancies for the store |
 | GET | `/api/actions` | All pending actions for the store |
 | POST | `/api/actions/:id/approve` | Approve a pending action |
 | POST | `/api/actions/:id/reject` | Reject a pending action |
