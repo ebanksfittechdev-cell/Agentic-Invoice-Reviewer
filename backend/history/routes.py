@@ -1,6 +1,9 @@
 """
 history/routes.py — POST /api/history/import
 
+Accepts a JSON file or JSON body. Dates may be strings ("YYYY-MM-DD") or
+Python date objects — _parse_date() normalises both.
+
 Accepts a JSON file or JSON body containing vendors, agreed_costs, promotions,
 and vendor_notices. Upserts all records for the logged-in store.
 
@@ -8,7 +11,8 @@ See backend/history_schema.md for the full schema.
 """
 
 import json
-from datetime import datetime, timezone
+from datetime import datetime, timezone, date as date_type
+from datetime import date as _date
 
 from flask import Blueprint, request, jsonify
 
@@ -16,6 +20,18 @@ from auth.utils import current_user_id
 from db import db, Vendor, AgreedCost, Promotion, VendorNotice
 
 history_bp = Blueprint("history", __name__)
+
+
+def _parse_date(value):
+    """Accept a date object or 'YYYY-MM-DD' string; return a date object or None."""
+    if value is None:
+        return None
+    if isinstance(value, _date):
+        return value
+    try:
+        return _date.fromisoformat(str(value))
+    except (ValueError, TypeError):
+        return None
 
 
 @history_bp.post("/import")
@@ -104,8 +120,9 @@ def import_history():
     for p in data.get("promotions", []):
         vendor_name = (p.get("vendor_name") or "").strip().lower()
         item_code = (p.get("item_code") or "").strip()
-        start_date = p.get("start_date")
-        if not vendor_name or not item_code or not start_date:
+        start_date = _parse_date(p.get("start_date"))
+        end_date = _parse_date(p.get("end_date"))
+        if not vendor_name or not item_code or not start_date or not end_date:
             continue
         vendor_id = vendor_map.get(vendor_name)
         if not vendor_id:
@@ -118,7 +135,7 @@ def import_history():
         if existing:
             existing.description = p.get("description", existing.description)
             existing.allowance_per_case = p["allowance_per_case"]
-            existing.end_date = p["end_date"]
+            existing.end_date = end_date
         else:
             db.session.add(Promotion(
                 user_id=user_id,
@@ -127,14 +144,14 @@ def import_history():
                 description=p.get("description"),
                 allowance_per_case=p["allowance_per_case"],
                 start_date=start_date,
-                end_date=p["end_date"],
+                end_date=end_date,
             ))
             counts["promotions"] += 1
 
     # --- Vendor notices ---
     for n in data.get("vendor_notices", []):
         vendor_name = (n.get("vendor_name") or "").strip().lower()
-        notice_date = n.get("notice_date")
+        notice_date = _parse_date(n.get("notice_date"))
         subject = (n.get("subject") or "").strip()
         if not vendor_name or not notice_date:
             continue

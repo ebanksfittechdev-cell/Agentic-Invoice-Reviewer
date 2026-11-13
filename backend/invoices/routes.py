@@ -1,5 +1,6 @@
 import os
 import uuid
+from datetime import date
 
 from flask import Blueprint, request, jsonify, current_app
 
@@ -72,7 +73,7 @@ def upload():
 
     # Update invoice header from extraction
     invoice.invoice_number = extracted.get("invoice_number") or ""
-    invoice.invoice_date = extracted.get("invoice_date") or None
+    invoice.invoice_date = _parse_date(extracted.get("invoice_date"))
     invoice.total = extracted.get("total")
 
     # Try to match vendor by name if not provided
@@ -266,3 +267,15 @@ def _action_dict(a) -> dict:
         "status": a.status,
         "created_at": a.created_at.isoformat() if a.created_at else None,
     }
+
+
+def _parse_date(value):
+    """Accept a date object or 'YYYY-MM-DD' string; return a date object or None."""
+    if value is None:
+        return None
+    if isinstance(value, date):
+        return value
+    try:
+        return date.fromisoformat(str(value))
+    except (ValueError, TypeError):
+        return None
