@@ -252,6 +252,40 @@ class TestPromotionCheck:
             result = run_checks(inv.id, u.id)
             assert all(d.type != "promotion" for d in result)
 
+    def test_full_credit_negative_line_total_no_flag(self, app, db):
+        """Credit stored as negative (e.g. -12.00) should still be treated as full credit."""
+        with app.app_context():
+            u = make_user(db)
+            v = make_vendor(db, u.id)
+            make_promo(db, u.id, v.id, "ITEM-1", allowance=1.20)
+            inv = make_invoice(db, u.id, v.id)
+            make_line(db, inv.id, item_code="ITEM-1", quantity=10, unit_price=9.00, line_total=90.00)
+            # Credit stored as -12.00 (negative) — should count as full 12.00 credit
+            make_line(db, inv.id, line_type="credit", item_code="ITEM-1",
+                      quantity=10, unit_price=1.20, line_total=-12.00)
+            db.session.commit()
+
+            result = run_checks(inv.id, u.id)
+            assert all(d.type != "promotion" for d in result)
+
+    def test_partial_credit_negative_line_total_flagged(self, app, db):
+        """Partial credit stored as negative (e.g. -6.00) => shortfall 6.00."""
+        with app.app_context():
+            u = make_user(db)
+            v = make_vendor(db, u.id)
+            make_promo(db, u.id, v.id, "ITEM-1", allowance=1.20)
+            inv = make_invoice(db, u.id, v.id)
+            make_line(db, inv.id, item_code="ITEM-1", quantity=10, unit_price=9.00, line_total=90.00)
+            # Partial credit stored as negative: -6.00 (expected 12.00, shortfall 6.00)
+            make_line(db, inv.id, line_type="credit", item_code="ITEM-1",
+                      quantity=5, unit_price=1.20, line_total=-6.00)
+            db.session.commit()
+
+            result = run_checks(inv.id, u.id)
+            promos = [d for d in result if d.type == "promotion"]
+            assert len(promos) == 1
+            assert float(promos[0].amount) == pytest.approx(6.00)
+
 
 # ---------------------------------------------------------------------------
 # 6. Deposit check

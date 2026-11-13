@@ -2,7 +2,11 @@
 conftest.py — shared fixtures for all backend tests.
 
 Uses an in-memory SQLite database so tests run without a Postgres instance.
-Each test gets a fresh DB via function-scoped fixtures.
+Each test gets a fresh set of rows via per-test table truncation.
+
+SAFETY GUARD: before create_all(), the bound engine is asserted to be SQLite.
+If the guard fires it means create_app() built a Postgres engine and the test
+run would mutate the real dev database — we abort loudly instead.
 """
 
 import pytest
@@ -13,27 +17,35 @@ from db import db as _db
 
 @pytest.fixture(scope="session")
 def app():
-    test_app = create_app()
-    test_app.config.update(
-        TESTING=True,
-        SQLALCHEMY_DATABASE_URI="sqlite:///:memory:",
-        SECRET_KEY="test-secret",
-        UPLOAD_FOLDER="/tmp/test_invoice_uploads",
-        WTF_CSRF_ENABLED=False,
-    )
+    test_app = create_app({
+        "TESTING": True,
+        "SQLALCHEMY_DATABASE_URI": "sqlite:///:memory:",
+        "SECRET_KEY": "test-secret",
+        "UPLOAD_FOLDER": "/tmp/test_invoice_uploads",
+    })
     with test_app.app_context():
+        # --- MANDATORY GUARD ---
+        # Abort loudly before touching any DB if the engine is not SQLite.
+        driver = _db.engine.url.drivername
+        assert driver == "sqlite", (
+            f"REFUSING to run tests: engine is '{_db.engine.url}' "
+            f"(drivername='{driver}'). Tests must use sqlite:///:memory:. "
+            "This guard prevents wiping the dev Postgres database."
+        )
+        # Print for confirmation in CI / local output
+        print(f"\n[conftest] test engine: {_db.engine.url}")
+
         _db.create_all()
         yield test_app
-        _db.drop_all()
+        # In-memory DB is destroyed with the process — no drop_all() needed.
 
 
 @pytest.fixture()
 def db(app):
-    """Yield db session; roll back after each test."""
+    """Yield db session; truncate all tables after each test."""
     with app.app_context():
         yield _db
         _db.session.rollback()
-        # Truncate all tables between tests
         for table in reversed(_db.metadata.sorted_tables):
             _db.session.execute(table.delete())
         _db.session.commit()

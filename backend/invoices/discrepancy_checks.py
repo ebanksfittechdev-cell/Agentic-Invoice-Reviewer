@@ -183,9 +183,12 @@ def _check_promotions(invoice: Invoice, lines: list[InvoiceLine], user_id: int) 
 
         expected_credit = (_dec(promo.allowance_per_case) * qty).quantize(Decimal("0.01"), ROUND_HALF_UP)
 
-        # Sum all credit line_totals for this item_code (credits stored as positive amounts)
+        # Sum credit line_totals for this item_code.
+        # Normalise with abs() because Gemini may return credits as negative
+        # (e.g. -12.00) or positive (12.00) depending on the invoice layout.
+        # We always treat the magnitude as the credit value.
         actual_credit = sum(
-            (_dec(l.line_total or 0) for l in lines
+            (abs(_dec(l.line_total or 0)) for l in lines
              if l.line_type == "credit" and l.item_code == promo.item_code),
             Decimal("0"),
         ).quantize(Decimal("0.01"), ROUND_HALF_UP)
