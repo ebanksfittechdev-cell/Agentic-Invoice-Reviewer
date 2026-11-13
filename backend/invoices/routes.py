@@ -166,6 +166,23 @@ def get_invoice(invoice_id):
 
 
 # ---------------------------------------------------------------------------
+# GET /api/invoices/discrepancies  (all discrepancies for the user)
+# ---------------------------------------------------------------------------
+
+@invoices_bp.get("/discrepancies")
+def list_discrepancies():
+    from db import Discrepancy
+    user_id = current_user_id()
+    discs = (
+        Discrepancy.query
+        .filter_by(user_id=user_id)
+        .order_by(Discrepancy.created_at.desc())
+        .all()
+    )
+    return jsonify([_disc_dict(d) for d in discs]), 200
+
+
+# ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
 
