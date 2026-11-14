@@ -163,3 +163,65 @@ class TestInvoiceDetail:
             "email": "intruder@store.com", "password": "pw", "store_name": "Bad"
         })
         assert client.get(f"/api/invoices/{invoice_id}").status_code == 404
+
+
+class TestVendorFromExtraction:
+    """The extractor returns vendor_name; upload uses it to file the invoice
+    under the right vendor so vendor-scoped checks (price, promo, deposit,
+    duplicate) can run."""
+
+    def test_extractor_requests_and_returns_vendor_name(self, monkeypatch):
+        from unittest.mock import MagicMock
+        import invoices.extractor as extractor
+
+        payload = {**MOCK_EXTRACTION, "vendor_name": "Lakeshore Beverages"}
+        client = MagicMock()
+        client.models.generate_content.return_value.text = "```json\n" + json.dumps(payload) + "\n```"
+        monkeypatch.setenv("GEMINI_API_KEY", "test-key")
+        monkeypatch.setattr(extractor.genai, "Client", lambda **_: client)
+
+        data = extractor.extract_invoice(b"img", "image/png")
+
+        assert '"vendor_name"' in extractor.PROMPT
+        assert data["vendor_name"] == "Lakeshore Beverages"
+
+    def _vendor_of_upload(self, app, client, db, email, stored_name, printed_name):
+        _login_new(client, email)
+        with app.app_context():
+            from db import User, Vendor
+            user = User.query.filter_by(email=email).first()
+            if stored_name:
+                make_vendor(db, user.id, name=stored_name)
+                db.session.commit()
+        resp = _upload(client, {**MOCK_EXTRACTION, "vendor_name": printed_name})
+        assert resp.status_code == 201
+        with app.app_context():
+            inv = db.session.get(Invoice, resp.get_json()["invoice_id"])
+            return inv.vendor.name
+
+    def test_exact_name_matches_vendor(self, app, client, db):
+        name = self._vendor_of_upload(app, client, db, "v1@store.com",
+                                      "Lakeshore Beverages", "Lakeshore Beverages")
+        assert name == "Lakeshore Beverages"
+
+    def test_longer_printed_name_matches_vendor(self, app, client, db):
+        name = self._vendor_of_upload(app, client, db, "v2@store.com",
+                                      "Lakeshore Beverages", "LAKESHORE BEVERAGES INC.")
+        assert name == "Lakeshore Beverages"
+
+    def test_unknown_name_falls_back_to_unknown_vendor(self, app, client, db):
+        name = self._vendor_of_upload(app, client, db, "v3@store.com",
+                                      "Lakeshore Beverages", "Sunrise Farms")
+        assert name == "Unknown Vendor"
+
+    def test_other_stores_vendor_is_not_matched(self, app, client, db):
+        _login_new(client, "owner-a@store.com")
+        with app.app_context():
+            from db import User
+            a = User.query.filter_by(email="owner-a@store.com").first()
+            make_vendor(db, a.id, name="Lakeshore Beverages")
+            db.session.commit()
+        client.post("/api/auth/logout")
+        name = self._vendor_of_upload(app, client, db, "owner-b@store.com",
+                                      None, "Lakeshore Beverages")
+        assert name == "Unknown Vendor"

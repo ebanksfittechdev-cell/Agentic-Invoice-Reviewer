@@ -1,5 +1,5 @@
 """
-agent/tools.py — all 9 ADK tools for the invoice agent.
+agent/tools.py — ADK tools for the invoice agent and the chat agent.
 
 Read tools query the DB; every query filters by user_id from ADK session state.
 Write tools insert exactly one pending_actions row — nothing else is written.
@@ -15,7 +15,7 @@ from google.adk.tools.tool_context import ToolContext
 
 from db import (
     db, Invoice, InvoiceLine, Vendor, AgreedCost, Promotion,
-    VendorNotice, PendingAction,
+    VendorNotice, PendingAction, Discrepancy,
 )
 
 
@@ -162,6 +162,125 @@ def get_invoice_history(vendor_id: int, item_code: str, tool_context: ToolContex
             }
             for r in rows
         ],
+    }
+
+
+# ---------------------------------------------------------------------------
+# Store-wide read tools — used by the chat agent to answer owner questions
+# ---------------------------------------------------------------------------
+
+def _money(v):
+    return float(v) if v is not None else None
+
+
+def list_vendors(tool_context: ToolContext) -> dict:
+    """List the store's vendors with their ids, account numbers and terms."""
+    user_id = _uid(tool_context)
+    vendors = Vendor.query.filter_by(user_id=user_id).order_by(Vendor.name).all()
+    return {
+        "vendors": [
+            {"vendor_id": v.id, "name": v.name, "account_no": v.account_no, "terms": v.terms}
+            for v in vendors
+        ]
+    }
+
+
+def list_invoices(tool_context: ToolContext) -> dict:
+    """List the store's invoices (newest first) with vendor, date, total and status."""
+    user_id = _uid(tool_context)
+    invoices = (
+        Invoice.query.filter_by(user_id=user_id)
+        .order_by(Invoice.uploaded_at.desc())
+        .limit(50)
+        .all()
+    )
+    return {
+        "invoices": [
+            {
+                "invoice_id": i.id,
+                "invoice_number": i.invoice_number,
+                "vendor_id": i.vendor_id,
+                "vendor_name": i.vendor.name if i.vendor else None,
+                "invoice_date": str(i.invoice_date) if i.invoice_date else None,
+                "total": _money(i.total),
+                "status": i.status,
+            }
+            for i in invoices
+        ]
+    }
+
+
+def list_discrepancies(status: str, tool_context: ToolContext) -> dict:
+    """List discrepancies found by the invoice checks.
+
+    status: one of "open", "explained", "disputed", or "all".
+    Amounts are computed by code; report them as given, do not recalculate.
+    """
+    user_id = _uid(tool_context)
+    q = Discrepancy.query.filter_by(user_id=user_id)
+    if status and status != "all":
+        q = q.filter_by(status=status)
+    rows = q.order_by(Discrepancy.created_at.desc()).limit(100).all()
+    return {
+        "discrepancies": [
+            {
+                "id": d.id,
+                "invoice_id": d.invoice_id,
+                "invoice_number": d.invoice.invoice_number if d.invoice else None,
+                "invoice_date": str(d.invoice.invoice_date) if d.invoice and d.invoice.invoice_date else None,
+                "vendor_name": d.invoice.vendor.name if d.invoice and d.invoice.vendor else None,
+                "type": d.type,
+                "item_code": d.item_code,
+                "amount": _money(d.amount),
+                "status": d.status,
+                "explanation": d.explanation,
+            }
+            for d in rows
+        ]
+    }
+
+
+def list_pending_actions(tool_context: ToolContext) -> dict:
+    """List actions the agent has proposed that are still waiting for the owner's decision."""
+    user_id = _uid(tool_context)
+    rows = (
+        PendingAction.query.filter_by(user_id=user_id, status="pending")
+        .order_by(PendingAction.created_at.desc())
+        .all()
+    )
+    return {
+        "pending_actions": [
+            {
+                "id": a.id,
+                "invoice_id": a.invoice_id,
+                "action_type": a.action_type,
+                "details": a.details,
+            }
+            for a in rows
+        ]
+    }
+
+
+def get_agreed_costs(vendor_id: int, tool_context: ToolContext) -> dict:
+    """Return the agreed (contracted) costs for a vendor's items. Use vendor_id 0 for all vendors."""
+    user_id = _uid(tool_context)
+    q = AgreedCost.query.filter_by(user_id=user_id)
+    if vendor_id:
+        q = q.filter_by(vendor_id=vendor_id)
+    return {
+        "agreed_costs": [
+            {
+                "vendor_id": c.vendor_id,
+                "vendor_name": c.vendor.name if c.vendor else None,
+                "item_code": c.item_code,
+                "description": c.description,
+                "unit": c.unit,
+                "pack_size": c.pack_size,
+                "cost": _money(c.cost),
+                "updated_at": c.updated_at.isoformat() if c.updated_at else None,
+            }
+            for c in q.order_by(AgreedCost.item_code).all()
+        ]
     }
 
 

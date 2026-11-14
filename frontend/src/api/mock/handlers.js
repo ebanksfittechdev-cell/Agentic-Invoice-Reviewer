@@ -98,10 +98,8 @@ const routes = [
   ["GET", /^\/api\/history\/agreed-costs$/, () =>
     ok(db.agreedCosts.map((c) => ({ ...c, vendor_name: vendorName(c.vendor_id) })))],
 
-  ["POST", /^\/api\/agent\/chat$/, async (_, { json }) => {
-    await delay(900);
-    return ok(fakeChatReply(json?.message || ""));
-  }],
+  ["POST", /^\/api\/agent\/chat$/, () =>
+    err("Chat needs the real agent — set VITE_USE_MOCKS=false and run the Flask backend.", 503)],
 ];
 
 export async function handleMockRequest(method, path, body) {
@@ -189,31 +187,5 @@ function fakeProcessedInvoice(file) {
       "get_invoice_history(Lakeshore Dairy, LD-1002) → last 4 invoices at $13.80",
       "draft_dispute(…) · hold_payment(…) · ask_owner(…)",
     ],
-  };
-}
-
-function fakeChatReply(message) {
-  const m = message.toLowerCase();
-  const open = db.discrepancies.filter((d) => d.status === "open" || d.status === "disputed");
-  const total = open.reduce((s, d) => s + (d.amount || 0), 0);
-
-  if (/overcharg|owe|credit|how much/.test(m)) {
-    return {
-      reply: `Across ${new Set(open.map((d) => d.invoice_id)).size} invoices, open or disputed discrepancies total $${total.toFixed(2)}. The largest is a $43.00 quantity shortfall on Greek Yogurt (invoice LD-88412).`,
-      steps: ["get_invoice_history(Lakeshore Dairy, *)", "sum(discrepancies.amount where status in open, disputed)"],
-    };
-  }
-  if (/pending|approve|action/.test(m)) {
-    const pending = db.actions.filter((a) => a.status === "pending");
-    return {
-      reply: pending.length
-        ? `You have ${pending.length} action${pending.length === 1 ? "" : "s"} waiting for approval. Open View history → Actions to see them all.`
-        : "Nothing is waiting on you right now.",
-      steps: [],
-    };
-  }
-  return {
-    reply: "I can review an invoice if you attach a photo or PDF, or answer questions like \"How much did Lakeshore overcharge us this month?\"",
-    steps: [],
   };
 }

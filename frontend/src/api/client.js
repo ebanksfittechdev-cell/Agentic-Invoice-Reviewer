@@ -72,5 +72,6 @@ export const api = {
   listAgreedCosts: () => request("GET", "/api/history/agreed-costs"),
 
   // --- chat (MOCK ONLY — agent Q&A, not designed in backend yet) ---
-  chat: (message) => request("POST", "/api/agent/chat", { json: { message } }),
+  // history: prior turns [{ role: "user" | "assistant", text }] so follow-ups have context
+  chat: (message, history = []) => request("POST", "/api/agent/chat", { json: { message, history } }),
 };

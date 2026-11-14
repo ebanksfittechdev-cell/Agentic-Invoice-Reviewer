@@ -4,7 +4,7 @@ import { api } from "../../api/client.js";
 import { useAuth } from "../../auth/AuthContext.jsx";
 import ActionCard from "../../components/ActionCard.jsx";
 import { ChevronIcon, CloseIcon, FileIcon, LogoMark, PaperclipIcon, SendIcon } from "../../components/Icons.jsx";
-import { money } from "../../utils/format.js";
+import { label, money, statusClass } from "../../utils/format.js";
 import "./chat.css";
 
 const ACCEPT = "image/jpeg,image/png,image/webp,image/gif,application/pdf";
@@ -67,7 +67,7 @@ export default function ChatPage() {
         const detail = await api.getInvoice(result.invoice_id);
         replace(pendingId, { role: "assistant", ...invoiceReply(result, detail) });
       } else {
-        const res = await api.chat(body);
+        const res = await api.chat(body, chatHistory(messages));
         replace(pendingId, { role: "assistant", text: res.reply, steps: res.steps });
       }
     } catch (e) {
@@ -167,24 +167,25 @@ function invoiceReply(result, detail) {
     discrepancies: result.discrepancy_count,
     status: result.status,
   };
-  if (result.status === "needs_review") {
-    return {
-      invoice: header,
-      text: result.error
-        ? `I couldn't read this invoice cleanly (${result.error}). It's been marked for manual review.`
-        : "The line items don't add up to the stated total, so I've marked this invoice for manual review instead of checking it.",
-    };
-  }
+  // Only show text the backend actually produced: the agent's summary, or the
+  // real error. Facts (status, counts) are shown in the invoice header instead.
+  const failure = result.error || result.agent_error;
   const pending = (detail.pending_actions || []).filter((a) => a.status === "pending");
   return {
     invoice: header,
-    text: result.agent_summary
-      || (result.discrepancy_count
-        ? `Found ${result.discrepancy_count} discrepanc${result.discrepancy_count === 1 ? "y" : "ies"}.`
-        : "Everything matches your records — no discrepancies found."),
+    text: failure || result.agent_summary || "",
+    error: Boolean(failure),
     steps: result.agent_steps,
     actions: pending,
   };
+}
+
+// Prior text turns sent with each chat message so the agent can follow up.
+function chatHistory(messages) {
+  return messages
+    .filter((m) => !m.pending && !m.error && m.text)
+    .slice(-10)
+    .map((m) => ({ role: m.role, text: m.text }));
 }
 
 function Message({ msg, onActionChange }) {
@@ -220,9 +221,10 @@ function Message({ msg, onActionChange }) {
                 <span>{money(msg.invoice.total)}</span>
                 <span>{msg.invoice.lines} lines</span>
                 <span>{msg.invoice.discrepancies} flagged</span>
+                <span className={statusClass(msg.invoice.status)}>{label(msg.invoice.status)}</span>
               </div>
             )}
-            <p className={`msg-text ${msg.error ? "is-error" : ""}`}>{msg.text}</p>
+            {msg.text && <p className={`msg-text ${msg.error ? "is-error" : ""}`}>{msg.text}</p>}
 
             {msg.steps?.length > 0 && (
               <div className="msg-steps">

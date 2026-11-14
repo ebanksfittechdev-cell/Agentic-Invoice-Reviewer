@@ -78,10 +78,7 @@ def upload():
 
     # Try to match vendor by name if not provided
     if not vendor_id and extracted.get("vendor_name"):
-        matched = Vendor.query.filter(
-            Vendor.user_id == user_id,
-            Vendor.name.ilike(f"%{extracted['vendor_name']}%"),
-        ).first()
+        matched = _match_vendor(user_id, extracted["vendor_name"])
         if matched:
             invoice.vendor_id = matched.id
 
@@ -124,20 +121,18 @@ def upload():
         raise
 
     agent_summary = None
+    agent_steps = []
+    agent_error = None
     if discrepancies and invoice.status == "checked":
+        from agent.runner import run_agent, AgentUnavailable
         try:
-            from agent.runner import run_agent
             res = run_agent(invoice.id, user_id, discrepancies)
-            if isinstance(res, dict):
-                agent_summary = res.get("summary")
-        except ModuleNotFoundError as exc:
-            if exc.name != "agent.runner":
-                _log.exception("Unexpected import error in agent.runner")
-                raise
-            # module genuinely absent — sub-task not yet deployed
-        except Exception:
-            _log.exception("agent.run_agent failed for invoice %s", invoice.id)
-            raise
+            agent_summary = res["summary"]
+            agent_steps = res["steps"]
+        except AgentUnavailable as exc:
+            # Invoice + discrepancies are already saved; report the real reason
+            # instead of a placeholder summary.
+            agent_error = str(exc)
 
     return jsonify({
         "invoice_id": invoice.id,
@@ -148,7 +143,8 @@ def upload():
         "line_count": len(lines),
         "discrepancy_count": len(discrepancies),
         "agent_summary": agent_summary,
-        "agent_steps": [],
+        "agent_steps": agent_steps,
+        "agent_error": agent_error,
     }), 201
 
 
@@ -206,6 +202,26 @@ def list_discrepancies():
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+
+def _match_vendor(user_id: int, printed_name: str):
+    """Match the vendor name printed on an invoice to one of the store's vendors.
+
+    Matches either way round, case-insensitively: the printed name may be
+    longer ("Lakeshore Beverages Inc.") or shorter ("Lakeshore") than the
+    stored name. Prefers the longest stored name that matches.
+    """
+    printed = printed_name.strip().lower()
+    if not printed:
+        return None
+    vendors = Vendor.query.filter(
+        Vendor.user_id == user_id, Vendor.name != "Unknown Vendor"
+    ).all()
+    candidates = [
+        v for v in vendors
+        if v.name and (printed in v.name.lower() or v.name.lower() in printed)
+    ]
+    return max(candidates, key=lambda v: len(v.name), default=None)
+
 
 def _get_or_create_unknown_vendor(user_id: int) -> int:
     """Return the id of an 'Unknown Vendor' placeholder, creating it if needed."""

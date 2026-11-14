@@ -31,7 +31,7 @@ Upload
 
 ## Gemini extraction (not the agent)
 
-**Model:** `gemini-1.5-pro`  
+**Model:** `GEMINI_MODEL` env var (default `gemini-3.8-flash`)  
 **Trigger:** once per invoice upload, before any agent runs  
 **Function:** `backend/invoices/extractor.py`
 
@@ -64,7 +64,7 @@ The extraction prompt explicitly instructs the model to treat any text on the in
 ## The agent
 
 **Framework:** Google ADK (`google-adk`)  
-**Model:** `gemini-1.5-pro` via ADK  
+**Model:** `GEMINI_MODEL` env var (default `gemini-3.8-flash`) via ADK  
 **Definition:** `backend/agent/agent.py`  
 **Runner:** `backend/agent/runner.py` → `run_agent(invoice_id, user_id, discrepancies)`
 
@@ -101,6 +101,18 @@ The agent calls these to investigate a discrepancy. Each filters all queries by 
 | `search_vendor_notices` | `(vendor_id, keyword)` | Matching price-change or promo emails |
 | `get_promotions` | `(vendor_id, item_code)` | Active allowances and their date ranges |
 | `get_invoice_history` | `(vendor_id, item_code)` | Past prices, quantities, and invoice numbers |
+
+### Store-wide read tools (chat agent only)
+
+The chat agent (`build_chat_agent()`, used by `POST /api/agent/chat`) has all the read tools above plus these. It has **no write tools**. Every reply is model-generated from tool results; if the model is unavailable the endpoint returns `503 {"error": ...}`, never a canned answer.
+
+| Tool | Signature | Returns |
+|------|-----------|---------|
+| `list_vendors` | `()` | Vendor ids, names, account numbers, terms |
+| `list_invoices` | `()` | Latest 50 invoices with vendor, date, total, status |
+| `list_discrepancies` | `(status)` | Discrepancies (`open`/`explained`/`disputed`/`all`) with amounts computed by code |
+| `list_pending_actions` | `()` | Actions still awaiting the owner's decision |
+| `get_agreed_costs` | `(vendor_id)` | Agreed costs for a vendor (`0` = all vendors) |
 
 ### Write tools — propose actions
 
@@ -167,6 +179,7 @@ Rejecting any action type sets `pending_actions.status = "rejected"` and `decide
 | `SECRET_KEY` | Flask session signing key — keep this secret and long |
 | `GEMINI_API_KEY` | Google AI API key with Gemini access |
 | `UPLOAD_FOLDER` | Absolute path where invoice files are stored, e.g. `/var/data/uploads` |
+| `GEMINI_MODEL` | Optional. Gemini model for extraction and agents (default `gemini-3.8-flash`) |
 | `FLASK_ENV` | `development` or `production` |
 | `FRONTEND_ORIGINS` | Comma-separated allowed CORS origins, e.g. `http://localhost:5173` (defaults to `http://localhost:5173,http://127.0.0.1:5173`) |
 
